@@ -1,0 +1,8 @@
+requests
+flask
+python-dotenv
+supabase
+eth-account
+x402
+httpx
+asyncio
