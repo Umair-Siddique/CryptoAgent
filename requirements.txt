@@ -1,8 +1,5 @@
-requests
-flask
-python-dotenv
-supabase
-eth-account
-x402
-httpx
-asyncio
+python-dotenv==1.0.0
+supabase==2.0.2
+httpx==0.25.2
+eth-account==0.9.0
+x402==0.1.0

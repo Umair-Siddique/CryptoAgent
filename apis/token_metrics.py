@@ -3,7 +3,7 @@ import base64
 import asyncio
 import json
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 import httpx
 
 from dotenv import load_dotenv
@@ -36,6 +36,10 @@ def pick_payment_token_from_accepts(accepts: list[str|dict]) -> Optional[Dict[st
         return preferred[0]
     # else take first
     return norm[0] if norm else None
+
+def get_today_date() -> str:
+    """Get today's date in YYYY-MM-DD format"""
+    return date.today().strftime('%Y-%m-%d')
 
 class TokenMetricsAPI:
     def __init__(self):
@@ -126,18 +130,104 @@ class TokenMetricsAPI:
             print(f"Failed to fetch tokens. Response: {result}")
             return None
     
-    async def get_hourly_ohlcv(self, token_symbol: str, hours: int = 24) -> Optional[List[Dict]]:
-        """Get hourly OHLCV data for a specific token"""
-        endpoint = "/v2/hourly-ohlcv"
-        headers = {
-            "symbol": token_symbol.upper(),
-            "hours": str(hours)
-        }
+    async def get_hourly_ohlcv_today(self, token_symbol: str) -> Optional[List[Dict]]:
+        """
+        Get hourly OHLCV data for today only for a specific token
         
-        result = await self._make_paid_request(endpoint, headers)
-        if result and 'data' in result:
+        Args:
+            token_symbol: Token symbol (e.g., "BTC", "ETH")
+        """
+        # Use the correct endpoint that returns multiple tokens
+        endpoint = f"/v2/hourly-ohlcv?limit=50&page=1"
+        print(f"Fetching hourly OHLCV data from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result and result['data']:
+            # Filter data for the specific token
+            filtered_data = [
+                record for record in result['data'] 
+                if record.get('TOKEN_SYMBOL', '').upper() == token_symbol.upper()
+            ]
+            
+            if filtered_data:
+                print(f"✅ Successfully fetched {len(filtered_data)} hourly OHLCV records for {token_symbol.upper()}")
+                return filtered_data
+            else:
+                print(f"ℹ️ No hourly OHLCV data found for {token_symbol.upper()}")
+                return []
+        else:
+            print(f"❌ Failed to fetch hourly OHLCV data. Response: {result}")
+            return None
+    
+    async def get_daily_ohlcv_today(self, token_symbol: str) -> Optional[List[Dict]]:
+        """
+        Get daily OHLCV data for today only for a specific token
+        
+        Args:
+            token_symbol: Token symbol (e.g., "BTC", "ETH")
+        """
+        # Use the correct endpoint that returns multiple tokens
+        endpoint = f"/v2/daily-ohlcv?limit=50&page=1"
+        print(f"Fetching daily OHLCV data from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result and result['data']:
+            # Filter data for the specific token
+            filtered_data = [
+                record for record in result['data'] 
+                if record.get('TOKEN_SYMBOL', '').upper() == token_symbol.upper()
+            ]
+            
+            if filtered_data:
+                print(f"✅ Successfully fetched {len(filtered_data)} daily OHLCV records for {token_symbol.upper()}")
+                return filtered_data
+            else:
+                print(f"ℹ️ No daily OHLCV data found for {token_symbol.upper()}")
+                return []
+        else:
+            print(f"❌ Failed to fetch daily OHLCV data. Response: {result}")
+            return None
+    
+    # Keep the original methods for backward compatibility
+    async def get_hourly_ohlcv(self, token_symbol: str, hours: int = 24) -> Optional[List[Dict]]:
+        """
+        Get hourly OHLCV data for a specific token (legacy method)
+        
+        Args:
+            token_symbol: Token symbol (e.g., "BTC", "ETH")
+            hours: Number of hours to fetch (default: 24)
+        """
+        endpoint = f"/v2/hourly-ohlcv?symbol={token_symbol.upper()}&hours={hours}"
+        print(f"Fetching hourly OHLCV for {token_symbol.upper()} from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result:
+            print(f"Successfully fetched {len(result['data'])} hourly OHLCV records for {token_symbol.upper()}")
             return result['data']
-        return None
+        else:
+            print(f"Failed to fetch hourly OHLCV for {token_symbol.upper()}. Response: {result}")
+            return None
+
+   
+    
+    async def get_daily_ohlcv(self, token_symbol: str, days: int = 30) -> Optional[List[Dict]]:
+        """
+        Get daily OHLCV data for a specific token (legacy method)
+        
+        Args:
+            token_symbol: Token symbol (e.g., "BTC", "ETH")
+            days: Number of days to fetch (default: 30)
+        """
+        endpoint = f"/v2/daily-ohlcv?symbol={token_symbol.upper()}&days={days}"
+        print(f"Fetching daily OHLCV for {token_symbol.upper()} from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result:
+            print(f"Successfully fetched {len(result['data'])} daily OHLCV records for {token_symbol.upper()}")
+            return result['data']
+        else:
+            print(f"Failed to fetch daily OHLCV for {token_symbol.upper()}. Response: {result}")
+            return None
 
 async def main():
     """Test function for Token Metrics API"""

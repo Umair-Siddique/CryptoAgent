@@ -15,18 +15,6 @@ class Config:
     # LunarCrush API Configuration
     LUNAR_CRUSH_API = os.getenv('LUNAR_CRUSH_API')
     
-    # Processing Configuration
-    TOP_TOKENS_LIMIT = int(os.getenv('TOP_TOKENS_LIMIT', '3')) 
-    OHLCV_HOURS = int(os.getenv('OHLCV_HOURS', '24'))
-    
-    # Token Filtering Configuration
-    TOKEN_CATEGORY = os.getenv('TOKEN_CATEGORY', 'altcoin,defi')  # Default to altcoins and DeFi
-    TOKEN_EXCHANGE = os.getenv('TOKEN_EXCHANGE', 'binance,coinbase,gate')  # Default to major exchanges
-    
-    # API Timeouts
-    REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', '120'))
-    CONNECT_TIMEOUT = int(os.getenv('CONNECT_TIMEOUT', '20'))
-    
     @classmethod
     def validate(cls):
         """Validate that all required environment variables are set"""

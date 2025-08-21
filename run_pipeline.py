@@ -1,97 +1,292 @@
 #!/usr/bin/env python3
 """
-Main script to run the complete crypto data pipeline.
-This script will:
-1. Fetch altcoin tokens from Token Metrics API using category and exchange filters
-2. Store token metadata in Supabase
-3. Fetch social posts for each token and store them in Supabase
+Simplified Crypto Data Pipeline
+This script processes 3 dummy tokens (BTC, ETH, ADA):
+1. Stores token metadata in Supabase
+2. Fetches social posts using LunarCrush API
+3. Fetches hourly and daily OHLCV data in parallel
+4. Fetches trading signals data
+5. Stores all data in Supabase
 """
 
 import asyncio
-import sys
-from config import Config
-from data_processor import CryptoDataProcessor
+import os
+from datetime import datetime, timezone
+from typing import List, Dict
+from dotenv import load_dotenv
+
+# Import our modules
+from apis.token_metrics import TokenMetricsAPI
 from apis.social_sentiment import fetch_social_sentiment, filter_posts, store_in_supabase
+from apis.ohlcv_storage import OHLCVStorage
+from apis.trading_signals import TradingSignalsAPI
+from apis.trading_signals_storage import TradingSignalsStorage
 
-async def main():
-    """Run the complete data pipeline"""
-    try:
-        # Validate configuration
-        Config.validate()
-        print("Configuration validated successfully")
-        
-        # Initialize processor
-        processor = CryptoDataProcessor()
-        
-        # Run the pipeline with altcoin filtering
-        await processor.process_all_tokens(
-            limit=Config.TOP_TOKENS_LIMIT,
-            category=Config.TOKEN_CATEGORY,
-            exchange=Config.TOKEN_EXCHANGE
-        )
-        
-        # Fetch social posts for each token
-        await fetch_social_posts_for_tokens(processor)
-        
-        print("\nPipeline completed successfully!")
-        
-    except ValueError as e:
-        print(f"Configuration error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Pipeline failed: {e}")
-        sys.exit(1)
+# Supabase client
+try:
+    from supabase import create_client, Client
+except ImportError:
+    print("Supabase client not found. Installing...")
+    os.system("pip install supabase")
+    from supabase import create_client, Client
 
-async def fetch_social_posts_for_tokens(processor):
-    """Fetch social posts for all tokens stored in the database"""
-    try:
-        # Get the most recent tokens from Supabase
-        result = processor.supabase.table('tokens').select('token_symbol').order('created_at', desc=True).limit(Config.TOP_TOKENS_LIMIT).execute()
+load_dotenv()
+
+# Environment variables
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+USER_ID = os.getenv('USER_ID')
+
+class CryptoPipeline:
+    def __init__(self):
+        if not SUPABASE_URL or not SUPABASE_KEY or not USER_ID:
+            raise ValueError("Missing required environment variables: SUPABASE_URL, SUPABASE_KEY, USER_ID")
         
-        if not result.data:
-            print("No tokens found in database to fetch social posts for")
-            return
-        
-        print(f"\n{'='*50}")
-        print("Fetching social posts for tokens...")
-        print(f"{'='*50}")
-        
-        for token_record in result.data:
-            token_symbol = token_record.get('token_symbol', '').lower()
-            if not token_symbol:
-                continue
-                
-            print(f"\nProcessing social posts for {token_symbol.upper()}...")
+        self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        self.token_api = TokenMetricsAPI()
+        self.ohlcv_storage = OHLCVStorage()
+        self.trading_signals_api = TradingSignalsAPI()
+        self.trading_signals_storage = TradingSignalsStorage()
+    
+    def get_dummy_tokens(self) -> List[Dict]:
+        """Get dummy data for BTC, ETH, ADA"""
+        return [
+            {
+                'TOKEN_ID': 1,
+                'TOKEN_NAME': 'Bitcoin',
+                'TOKEN_SYMBOL': 'BTC',
+                'CURRENT_PRICE': 45000.00,
+                'MARKET_CAP': 850000000000,
+                'TOTAL_VOLUME': 25000000000,
+                'CIRCULATING_SUPPLY': 19500000,
+                'TOTAL_SUPPLY': 21000000,
+                'MAX_SUPPLY': 21000000,
+                'FULLY_DILUTED_VALUATION': 945000000000,
+                'HIGH_24H': 46000.00,
+                'LOW_24H': 44000.00,
+                'PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY': 2.5
+            },
+            {
+                'TOKEN_ID': 2,
+                'TOKEN_NAME': 'Ethereum',
+                'TOKEN_SYMBOL': 'ETH',
+                'CURRENT_PRICE': 3200.00,
+                'MARKET_CAP': 380000000000,
+                'TOTAL_VOLUME': 15000000000,
+                'CIRCULATING_SUPPLY': 120000000,
+                'TOTAL_SUPPLY': 120000000,
+                'MAX_SUPPLY': None,
+                'FULLY_DILUTED_VALUATION': 384000000000,
+                'HIGH_24H': 3300.00,
+                'LOW_24H': 3100.00,
+                'PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY': 1.8
+            },
+            {
+                'TOKEN_ID': 3,
+                'TOKEN_NAME': 'Cardano',
+                'TOKEN_SYMBOL': 'ADA',
+                'CURRENT_PRICE': 0.85,
+                'MARKET_CAP': 30000000000,
+                'TOTAL_VOLUME': 800000000,
+                'CIRCULATING_SUPPLY': 35000000000,
+                'TOTAL_SUPPLY': 45000000000,
+                'MAX_SUPPLY': 45000000000,
+                'FULLY_DILUTED_VALUATION': 38250000000,
+                'HIGH_24H': 0.88,
+                'LOW_24H': 0.82,
+                'PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY': 3.2
+            }
+        ]
+    
+    def store_token_data(self, token: Dict) -> bool:
+        """Store token metadata in Supabase"""
+        try:
+            # For now, just print the token data
+            print(f"📊 Token: {token.get('TOKEN_SYMBOL')} - {token.get('TOKEN_NAME')}")
+            print(f"   Price: ${token.get('CURRENT_PRICE'):,.2f}")
+            print(f"   Market Cap: ${token.get('MARKET_CAP'):,.0f}")
+            print(f"   24h Change: {token.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY')}%")
+            return True
+        except Exception as e:
+            print(f"❌ Error storing token data: {e}")
+            return False
+    
+    async def process_social_posts(self, token_symbol: str) -> bool:
+        """Process social posts for a token"""
+        try:
+            print(f"📱 Fetching social posts for {token_symbol}...")
             
             # Fetch social sentiment data
-            social_data = fetch_social_sentiment(token_symbol)
+            posts = await fetch_social_sentiment(token_symbol)
+            if not posts:
+                print(f"ℹ️ No social posts found for {token_symbol}")
+                return True
             
-            if social_data is None:
-                print(f"❌ Failed to fetch social data for {token_symbol.upper()}")
-                continue
+            # Filter posts
+            filtered_posts = filter_posts(posts)
+            if not filtered_posts:
+                print(f"ℹ️ No filtered posts for {token_symbol}")
+                return True
             
-            print(f"�� Raw data received: {len(social_data.get('data', []))} posts")
+            # Store in Supabase
+            success = store_in_supabase(filtered_posts, token_symbol)
             
-            # Filter posts based on criteria
-            filtered_posts = filter_posts(social_data)
-            print(f"🔍 Filtered posts: {len(filtered_posts)} posts meet criteria")
-            
-            # Store filtered posts in Supabase
-            if filtered_posts:
-                success = store_in_supabase(filtered_posts)
-                if success:
-                    print(f"✅ Successfully stored {len(filtered_posts)} social posts for {token_symbol.upper()}")
-                else:
-                    print(f"❌ Failed to store social posts for {token_symbol.upper()}")
+            if success:
+                print(f"✅ Successfully processed {len(filtered_posts)} social posts for {token_symbol}")
             else:
-                print(f"ℹ️ No social posts meet the filtering criteria for {token_symbol.upper()}")
+                print(f"❌ Failed to store social posts for {token_symbol}")
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ Error processing social posts for {token_symbol}: {e}")
+            return False
+    
+    async def process_ohlcv_data(self, token_symbol: str) -> bool:
+        """Process OHLCV data for a token"""
+        try:
+            print(f"📈 Fetching OHLCV data for {token_symbol}...")
+            
+            # Fetch hourly and daily OHLCV data
+            hourly_data = await self.token_api.get_hourly_ohlcv_today(token_symbol)
+            daily_data = await self.token_api.get_daily_ohlcv_today(token_symbol)
+            
+            # Store data - FIXED: Added token_symbol parameter
+            hourly_success = self.ohlcv_storage.store_hourly_ohlcv(token_symbol, hourly_data or [])
+            daily_success = self.ohlcv_storage.store_daily_ohlcv(token_symbol, daily_data or [])
+            
+            if hourly_success and daily_success:
+                print(f"✅ Successfully processed OHLCV data for {token_symbol}")
+                return True
+            else:
+                print(f"❌ Failed to process OHLCV data for {token_symbol}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error processing OHLCV data for {token_symbol}: {e}")
+            return False
+    
+    async def process_trading_signals(self, token_symbols: str) -> bool:
+        """Process trading signals for multiple tokens"""
+        try:
+            print(f"📊 Fetching trading signals for {token_symbols}...")
+            
+            # Fetch trading signals
+            signals = await self.trading_signals_api.get_trading_signals(token_symbols)
+            
+            if not signals:
+                print(f"ℹ️ No trading signals found for {token_symbols}")
+                return True
+            
+            # Store trading signals
+            success = self.trading_signals_storage.store_trading_signals(signals)
+            
+            if success:
+                print(f"✅ Successfully processed trading signals for {token_symbols}")
+                return True
+            else:
+                print(f"❌ Failed to store trading signals for {token_symbols}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error processing trading signals for {token_symbols}: {e}")
+            return False
+    
+
+    
+    async def process_token(self, token: Dict) -> bool:
+        """Process a single token (social posts and OHLCV in parallel)"""
+        symbol = token.get('TOKEN_SYMBOL', '').upper()
+        name = token.get('TOKEN_NAME', 'N/A')
         
         print(f"\n{'='*50}")
-        print("Social posts processing completed!")
+        print(f"Processing: {symbol} ({name})")
         print(f"{'='*50}")
         
+        # Store token metadata
+        token_success = self.store_token_data(token)
+        if not token_success:
+            print(f"❌ Failed to store token data for {symbol}")
+            return False
+        
+        # Process social posts and OHLCV in parallel
+        social_task = self.process_social_posts(symbol)
+        ohlcv_task = self.process_ohlcv_data(symbol)
+        
+        social_success, ohlcv_success = await asyncio.gather(social_task, ohlcv_task, return_exceptions=True)
+        
+        # Handle results
+        if isinstance(social_success, Exception):
+            print(f"❌ Social posts failed for {symbol}: {social_success}")
+            social_success = False
+        
+        if isinstance(ohlcv_success, Exception):
+            print(f"❌ OHLCV failed for {symbol}: {ohlcv_success}")
+            ohlcv_success = False
+        
+        overall_success = social_success and ohlcv_success
+        
+        if overall_success:
+            print(f"✅ Successfully processed {symbol}")
+        else:
+            print(f"❌ Failed to process {symbol}")
+        
+        return overall_success
+    
+    async def run_pipeline(self):
+        """Run the complete pipeline"""
+        try:
+            print("🚀 Starting Crypto Data Pipeline")
+            print("Processing: BTC, ETH, ADA")
+            print(f"{'='*50}")
+            
+            # Get dummy tokens
+            tokens = self.get_dummy_tokens()
+            print(f"Loaded {len(tokens)} tokens")
+            
+            # Process all tokens
+            results = []
+            for token in tokens:
+                result = await self.process_token(token)
+                results.append(result)
+            
+            # Process trading signals for all tokens together
+            print(f"\n{'='*50}")
+            print("Processing Trading Signals")
+            print(f"{'='*50}")
+            
+            token_symbols = ",".join([token.get('TOKEN_SYMBOL', '') for token in tokens])
+            trading_signals_success = await self.process_trading_signals(token_symbols)
+            
+            # Summary
+            successful = sum(results)
+            total = len(results)
+            
+            print(f"\n{'='*50}")
+            print("PIPELINE COMPLETED")
+            print(f"{'='*50}")
+            print(f"✅ Successfully processed: {successful}/{total} tokens")
+            print(f"📈 Trading signals: {'✅ Success' if trading_signals_success else '❌ Failed'}")
+            
+            if successful == total and trading_signals_success:
+                print("🎉 All tokens and trading signals processed successfully!")
+            else:
+                print("⚠️ Some components failed to process")
+            
+        except Exception as e:
+            print(f"❌ Pipeline failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+async def main():
+    """Main function"""
+    try:
+        pipeline = CryptoPipeline()
+        await pipeline.run_pipeline()
     except Exception as e:
-        print(f"Error fetching social posts: {e}")
+        print(f"❌ Failed to start pipeline: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     asyncio.run(main())

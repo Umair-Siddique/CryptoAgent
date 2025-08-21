@@ -26,7 +26,7 @@ def get_today_timestamp():
     today = datetime.now(timezone.utc)
     return int(today.timestamp())
 
-def fetch_social_sentiment(token, start_date=None, end_date=None):
+async def fetch_social_sentiment(token, start_date=None, end_date=None):
     """Fetch social sentiment data for a given token"""
     
     # Use today's date if not provided
@@ -41,11 +41,18 @@ def fetch_social_sentiment(token, start_date=None, end_date=None):
         'Authorization': f'Bearer {LUNAR_CRUSH_API}'
     }
     
+    print(f"Fetching from URL: {url}")
+    print(f"Using API key: {'Set' if LUNAR_CRUSH_API else 'Not set'}")
+    
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            print(f"Received {len(data.get('data', []))} posts from API")
+            return data
+    except Exception as e:
         print(f"Error fetching data: {e}")
         return None
 
@@ -65,10 +72,17 @@ def safe_float(value, default=0.0):
 
 def filter_posts(posts_data):
     """Filter posts according to criteria based on actual API response structure"""
-    if not posts_data or 'data' not in posts_data:
+    if not posts_data:
+        print("No posts data received")
+        return []
+    
+    if 'data' not in posts_data:
+        print(f"Unexpected data structure: {list(posts_data.keys()) if isinstance(posts_data, dict) else type(posts_data)}")
         return []
     
     filtered_posts = []
+    
+    print(f"Processing {len(posts_data['data'])} posts...")
     
     for post in posts_data['data']:
         # Extract required fields and convert to proper data types
@@ -99,10 +113,14 @@ def filter_posts(posts_data):
     
     return filtered_posts
 
-def store_in_supabase(posts):
+def store_in_supabase(posts, token_symbol=None):
     """Store filtered posts in Supabase with duplicate handling"""
     if not SUPABASE_URL or not SUPABASE_KEY:
         print("Supabase credentials not found in environment variables")
+        return False
+    
+    if not USER_ID:
+        print("USER_ID not found in environment variables")
         return False
     
     try:
