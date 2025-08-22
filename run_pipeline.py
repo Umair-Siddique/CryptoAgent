@@ -6,7 +6,9 @@ This script processes 3 dummy tokens (BTC, ETH, ADA):
 2. Fetches social posts using LunarCrush API
 3. Fetches hourly and daily OHLCV data in parallel
 4. Fetches trading signals data
-5. Stores all data in Supabase
+5. Fetches AI reports data
+6. Fetches fundamental grade data
+7. Stores all data in Supabase
 """
 
 import asyncio
@@ -21,6 +23,8 @@ from apis.social_sentiment import fetch_social_sentiment, filter_posts, store_in
 from apis.ohlcv_storage import OHLCVStorage
 from apis.trading_signals import TradingSignalsAPI
 from apis.trading_signals_storage import TradingSignalsStorage
+from apis.ai_report import AIReportAPI
+from apis.fundamental_grade import FundamentalGradeAPI
 
 # Supabase client
 try:
@@ -47,6 +51,8 @@ class CryptoPipeline:
         self.ohlcv_storage = OHLCVStorage()
         self.trading_signals_api = TradingSignalsAPI()
         self.trading_signals_storage = TradingSignalsStorage()
+        self.ai_report_api = AIReportAPI()
+        self.fundamental_grade_api = FundamentalGradeAPI()
     
     def get_dummy_tokens(self) -> List[Dict]:
         """Get dummy data for BTC, ETH, ADA"""
@@ -166,6 +172,44 @@ class CryptoPipeline:
             print(f"❌ Error processing OHLCV data for {token_symbol}: {e}")
             return False
     
+    async def process_ai_report(self, token_symbol: str) -> bool:
+        """Process AI report for a token"""
+        try:
+            print(f"📊 Fetching AI report for {token_symbol}...")
+            
+            # Fetch and store AI report data
+            success = await self.ai_report_api.get_and_store_ai_report(token_symbol)
+            
+            if success:
+                print(f"✅ Successfully processed AI report for {token_symbol}")
+                return True
+            else:
+                print(f"❌ Failed to process AI report for {token_symbol}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error processing AI report for {token_symbol}: {e}")
+            return False
+    
+    async def process_fundamental_grade(self, token_symbol: str) -> bool:
+        """Process fundamental grade for a token"""
+        try:
+            print(f"📊 Fetching fundamental grade for {token_symbol}...")
+            
+            # Fetch and store fundamental grade data
+            success = await self.fundamental_grade_api.fetch_and_store_fundamental_grade(token_symbol)
+            
+            if success:
+                print(f"✅ Successfully processed fundamental grade for {token_symbol}")
+                return True
+            else:
+                print(f"❌ Failed to process fundamental grade for {token_symbol}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error processing fundamental grade for {token_symbol}: {e}")
+            return False
+    
     async def process_trading_signals(self, token_symbols: str) -> bool:
         """Process trading signals for multiple tokens"""
         try:
@@ -192,10 +236,8 @@ class CryptoPipeline:
             print(f"❌ Error processing trading signals for {token_symbols}: {e}")
             return False
     
-
-    
     async def process_token(self, token: Dict) -> bool:
-        """Process a single token (social posts and OHLCV in parallel)"""
+        """Process a single token (social posts, OHLCV, AI report, and fundamental grade in parallel)"""
         symbol = token.get('TOKEN_SYMBOL', '').upper()
         name = token.get('TOKEN_NAME', 'N/A')
         
@@ -209,11 +251,15 @@ class CryptoPipeline:
             print(f"❌ Failed to store token data for {symbol}")
             return False
         
-        # Process social posts and OHLCV in parallel
+        # Process social posts, OHLCV, AI report, and fundamental grade in parallel
         social_task = self.process_social_posts(symbol)
         ohlcv_task = self.process_ohlcv_data(symbol)
+        ai_report_task = self.process_ai_report(symbol)
+        fundamental_grade_task = self.process_fundamental_grade(symbol)
         
-        social_success, ohlcv_success = await asyncio.gather(social_task, ohlcv_task, return_exceptions=True)
+        social_success, ohlcv_success, ai_report_success, fundamental_grade_success = await asyncio.gather(
+            social_task, ohlcv_task, ai_report_task, fundamental_grade_task, return_exceptions=True
+        )
         
         # Handle results
         if isinstance(social_success, Exception):
@@ -224,7 +270,15 @@ class CryptoPipeline:
             print(f"❌ OHLCV failed for {symbol}: {ohlcv_success}")
             ohlcv_success = False
         
-        overall_success = social_success and ohlcv_success
+        if isinstance(ai_report_success, Exception):
+            print(f"❌ AI report failed for {symbol}: {ai_report_success}")
+            ai_report_success = False
+        
+        if isinstance(fundamental_grade_success, Exception):
+            print(f"❌ Fundamental grade failed for {symbol}: {fundamental_grade_success}")
+            fundamental_grade_success = False
+        
+        overall_success = social_success and ohlcv_success and ai_report_success and fundamental_grade_success
         
         if overall_success:
             print(f"✅ Successfully processed {symbol}")

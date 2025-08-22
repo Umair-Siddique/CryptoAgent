@@ -39,7 +39,8 @@ def pick_payment_token_from_accepts(accepts: list[str|dict]) -> Optional[Dict[st
 
 def get_today_date() -> str:
     """Get today's date in YYYY-MM-DD format"""
-    return date.today().strftime('%Y-%m-%d')
+    # Use UTC timezone to ensure we get the correct current date
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
 class TradingSignalsAPI:
     def __init__(self):
