@@ -55,18 +55,20 @@ CREATE TABLE IF NOT EXISTS trading_signals (
 );
 
 -- Create posts table for social sentiment data
-CREATE TABLE IF NOT EXISTS posts (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID NOT NULL,
-    token VARCHAR(20),
-    post_title TEXT,
-    post_link VARCHAR(500) UNIQUE,
-    post_sentiment DECIMAL(10, 4),
-    creator_followers INTEGER,
-    interactions_24h INTEGER,
-    interactions_total INTEGER,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+create table public.posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+
+  -- renamed (avoid reserved word)
+  ingested_at timestamptz not null default now(),
+
+  token text,
+  post_title text not null,
+  post_link text,
+  post_sentiment double precision,
+  creator_followers bigint,
+  interactions_24h bigint,
+  interactions_total bigint
 );
 
 -- Create ai_reports table
@@ -104,6 +106,31 @@ CREATE TABLE IF NOT EXISTS fundamental_grade (
     UNIQUE(token_symbol)
 );
 
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    content_type VARCHAR(50) NOT NULL,
+    content_id UUID NOT NULL,  -- CHANGE: Use UUID instead of BIGINT
+    token_symbol VARCHAR(20),
+    content_text TEXT NOT NULL,
+    embedding_vector vector(1536),
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(content_type, content_id)
+);
+-- Change the embeddings table to allow both integer and UUID content_ids
+ALTER TABLE embeddings ALTER COLUMN content_id TYPE TEXT;
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_embeddings_content_type ON embeddings(content_type);
+CREATE INDEX IF NOT EXISTS idx_embeddings_content_id ON embeddings(content_id);
+CREATE INDEX IF NOT EXISTS idx_embeddings_token_symbol ON embeddings(token_symbol);
+CREATE INDEX IF NOT EXISTS idx_embeddings_created_at ON embeddings(created_at);
+
+-- Use IVFFlat index with smaller dimensions
+CREATE INDEX IF NOT EXISTS idx_embeddings_vector ON embeddings USING ivfflat (embedding_vector vector_cosine_ops) WITH (lists = 100);
 -- Create index for better performance
 CREATE INDEX IF NOT EXISTS idx_hourly_ohlcv_token_symbol ON hourly_ohlcv(token_symbol);
 CREATE INDEX IF NOT EXISTS idx_hourly_ohlcv_date_time ON hourly_ohlcv(date_time);
@@ -111,8 +138,12 @@ CREATE INDEX IF NOT EXISTS idx_daily_ohlcv_token_symbol ON daily_ohlcv(token_sym
 CREATE INDEX IF NOT EXISTS idx_daily_ohlcv_date_time ON daily_ohlcv(date_time);
 CREATE INDEX IF NOT EXISTS idx_trading_signals_token_symbol ON trading_signals(token_symbol);
 CREATE INDEX IF NOT EXISTS idx_trading_signals_date_time ON trading_signals(date_time);
-CREATE INDEX IF NOT EXISTS idx_posts_token ON posts(token);
-CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at);
+create unique index if not exists posts_post_link_unique on public.posts (post_link);
+
+-- helpful query indexes
+create index if not exists posts_token_ingested_at_idx on public.posts (token, ingested_at desc);
+create index if not exists posts_sentiment_idx on public.posts (post_sentiment);
+create index if not exists posts_interactions_idx on public.posts (interactions_total desc, interactions_24h desc);
 
 -- Create index for ai_reports table
 CREATE INDEX IF NOT EXISTS idx_ai_reports_token_symbol ON ai_reports(token_symbol);

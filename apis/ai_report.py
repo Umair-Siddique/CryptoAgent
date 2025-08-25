@@ -61,57 +61,98 @@ class AIReportAPI:
             raise ValueError("Missing Supabase credentials")
         
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
+        self.max_retries = 3
+        self.base_delay = 1.0  # Base delay in seconds
     
     async def _make_paid_request(self, endpoint: str, headers: Dict[str, str] = None) -> Optional[Dict]:
         """Make a paid request to Token Metrics API"""
-        async with x402HttpxClient(account=self.account, base_url=API_BASE, timeout=self.timeouts) as client:
-            # Preflight to get payment requirements
-            try:
-                pre = await client.get(
-                    endpoint,
-                    headers={
+        try:
+            async with x402HttpxClient(account=self.account, base_url=API_BASE, timeout=self.timeouts) as client:
+                # Preflight to get payment requirements
+                try:
+                    pre = await client.get(
+                        endpoint,
+                        headers={
+                            "x-coinbase-402": "true",
+                            "accept": "application/json",
+                            **(headers or {})
+                        },
+                    )
+                    
+                    if pre.status_code == 200:
+                        return json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
+                    
+                    # Expect 402 with accepts
+                    body = json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
+                    accepts = body.get("accepts", [])
+                    if not accepts:
+                        error_msg = f"No 'accepts' found in 402 challenge: {body}"
+                        print(f"❌ API Error: {error_msg}")
+                        return {"error": error_msg, "status_code": pre.status_code, "response_body": body}
+
+                    chosen = pick_payment_token_from_accepts(accepts)
+                    if not chosen:
+                        error_msg = f"Could not pick token from accepts: {accepts}"
+                        print(f"❌ API Error: {error_msg}")
+                        return {"error": error_msg, "status_code": pre.status_code, "response_body": body}
+
+                    # Real call with payment
+                    payment_headers = {
                         "x-coinbase-402": "true",
                         "accept": "application/json",
                         **(headers or {})
-                    },
-                )
+                    }
+                    
+                    alias = (chosen.get("extra", {}) or {}).get("name")
+                    if alias:
+                        payment_headers["x-payment-token"] = alias.lower()
+                    else:
+                        if chosen.get("asset"):
+                            payment_headers["x-payment-token"] = str(chosen["asset"])
+
+                    r = await client.get(endpoint, headers=payment_headers)
+                    return json.loads((await r.aread()).decode("utf-8", errors="ignore") or "{}")
+
+                except Exception as e:
+                    error_msg = f"Request failed: {str(e)}"
+                    print(f"❌ API Error: {error_msg}")
+                    return {"error": error_msg, "exception": str(e)}
+                    
+        except Exception as e:
+            error_msg = f"Client initialization failed: {str(e)}"
+            print(f"❌ API Error: {error_msg}")
+            return {"error": error_msg, "exception": str(e)}
+    
+    async def _make_paid_request_with_retry(self, endpoint: str, headers: Dict[str, str] = None) -> Optional[Dict]:
+        """Make a paid request with retry logic and exponential backoff"""
+        for attempt in range(self.max_retries):
+            try:
+                result = await self._make_paid_request(endpoint, headers)
                 
-                if pre.status_code == 200:
-                    return json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
+                # If successful, return immediately
+                if result and "error" not in result:
+                    return result
                 
-                # Expect 402 with accepts
-                body = json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
-                accepts = body.get("accepts", [])
-                if not accepts:
-                    raise RuntimeError(f"No 'accepts' found in 402 challenge: {body}")
-
-                chosen = pick_payment_token_from_accepts(accepts)
-                if not chosen:
-                    raise RuntimeError(f"Could not pick token from accepts: {accepts}")
-
-                # Real call with payment
-                payment_headers = {
-                    "x-coinbase-402": "true",
-                    "accept": "application/json",
-                    **(headers or {})
-                }
+                # If it's a payment error, wait and retry
+                if result and "error" in result and "payment" in result["error"].lower():
+                    if attempt < self.max_retries - 1:  # Don't sleep on last attempt
+                        delay = self.base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        print(f"⚠️ Payment error, retrying in {delay:.1f} seconds... (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
                 
-                alias = (chosen.get("extra", {}) or {}).get("name")
-                if alias:
-                    payment_headers["x-payment-token"] = alias.lower()
-                else:
-                    if chosen.get("asset"):
-                        payment_headers["x-payment-token"] = str(chosen["asset"])
-
-                r = await client.get(endpoint, headers=payment_headers)
-                return json.loads((await r.aread()).decode("utf-8", errors="ignore") or "{}")
-
-            except httpx.TimeoutException as e:
-                print(f"Request timed out for {endpoint}: {e}")
-                return None
+                return result
+                
             except Exception as e:
-                print(f"Request failed for {endpoint}: {e}")
-                return None
+                if attempt < self.max_retries - 1:
+                    delay = self.base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"⚠️ Request failed, retrying in {delay:.1f} seconds... (attempt {attempt + 1}/{self.max_retries})")
+                    await asyncio.sleep(delay)
+                else:
+                    print(f"❌ All retry attempts failed: {e}")
+                    return {"error": str(e)}
+        
+        return {"error": "Max retries exceeded"}
     
     async def get_ai_report(self, symbol: str) -> Optional[List[Dict]]:
         """
@@ -123,12 +164,28 @@ class AIReportAPI:
         endpoint = f"/v2/ai-reports?symbol={symbol.upper()}"
         print(f"Fetching AI report for {symbol.upper()} from: {endpoint}")
         
-        result = await self._make_paid_request(endpoint)
+        result = await self._make_paid_request_with_retry(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for {symbol.upper()}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
         if result and result.get('success') and 'data' in result:
             print(f"✅ Successfully fetched {len(result['data'])} AI report records for {symbol.upper()}")
             return result['data']
         else:
             print(f"❌ Failed to fetch AI report for {symbol.upper()}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Full response: {result}")
             return None
     
     def store_ai_report(self, ai_report_data: List[Dict]) -> bool:

@@ -15,6 +15,29 @@ class Config:
     # LunarCrush API Configuration
     LUNAR_CRUSH_API = os.getenv('LUNAR_CRUSH_API')
     
+    # OpenAI Configuration
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    
+    # Add rate limiting configuration
+    API_RATE_LIMITS = {
+        'ai_report': {
+            'requests_per_minute': 10,
+            'delay_between_requests': 6.0  # seconds
+        },
+        'fundamental_grade': {
+            'requests_per_minute': 10,
+            'delay_between_requests': 6.0  # seconds
+        },
+        'social_sentiment': {
+            'requests_per_minute': 30,
+            'delay_between_requests': 2.0  # seconds
+        },
+        'ohlcv': {
+            'requests_per_minute': 60,
+            'delay_between_requests': 1.0  # seconds
+        }
+    }
+    
     @classmethod
     def validate(cls):
         """Validate that all required environment variables are set"""
@@ -23,7 +46,8 @@ class Config:
             'SUPABASE_KEY', 
             'USER_ID',
             'X402_PRIVATE_KEY_B64',
-            'LUNAR_CRUSH_API'
+            'LUNAR_CRUSH_API',
+            'OPENAI_API_KEY'
         ]
         
         missing_vars = []

@@ -14,7 +14,7 @@ This script processes 3 dummy tokens (BTC, ETH, ADA):
 import asyncio
 import os
 from datetime import datetime, timezone
-from typing import List, Dict
+from typing import List, Dict, Optional
 from dotenv import load_dotenv
 
 # Import our modules
@@ -185,10 +185,19 @@ class CryptoPipeline:
                 return True
             else:
                 print(f"❌ Failed to process AI report for {token_symbol}")
+                print(f"   This could be due to:")
+                print(f"   - API authentication issues")
+                print(f"   - Network connectivity problems")
+                print(f"   - API rate limiting")
+                print(f"   - Invalid token symbol")
+                print(f"   - Missing environment variables")
                 return False
                 
         except Exception as e:
             print(f"❌ Error processing AI report for {token_symbol}: {e}")
+            import traceback
+            print("Full error details:")
+            traceback.print_exc()
             return False
     
     async def process_fundamental_grade(self, token_symbol: str) -> bool:
@@ -204,10 +213,19 @@ class CryptoPipeline:
                 return True
             else:
                 print(f"❌ Failed to process fundamental grade for {token_symbol}")
+                print(f"   This could be due to:")
+                print(f"   - API authentication issues")
+                print(f"   - Network connectivity problems")
+                print(f"   - API rate limiting")
+                print(f"   - Invalid token symbol")
+                print(f"   - Missing environment variables")
                 return False
                 
         except Exception as e:
             print(f"❌ Error processing fundamental grade for {token_symbol}: {e}")
+            import traceback
+            print("Full error details:")
+            traceback.print_exc()
             return False
     
     async def process_trading_signals(self, token_symbols: str) -> bool:
@@ -237,7 +255,7 @@ class CryptoPipeline:
             return False
     
     async def process_token(self, token: Dict) -> bool:
-        """Process a single token (social posts, OHLCV, AI report, and fundamental grade in parallel)"""
+        """Process a single token with delays between API calls"""
         symbol = token.get('TOKEN_SYMBOL', '').upper()
         name = token.get('TOKEN_NAME', 'N/A')
         
@@ -251,32 +269,24 @@ class CryptoPipeline:
             print(f"❌ Failed to store token data for {symbol}")
             return False
         
-        # Process social posts, OHLCV, AI report, and fundamental grade in parallel
-        social_task = self.process_social_posts(symbol)
-        ohlcv_task = self.process_ohlcv_data(symbol)
-        ai_report_task = self.process_ai_report(symbol)
-        fundamental_grade_task = self.process_fundamental_grade(symbol)
+        # Process APIs sequentially with delays instead of in parallel
+        print(f" Processing {symbol} APIs sequentially to avoid rate limits...")
         
-        social_success, ohlcv_success, ai_report_success, fundamental_grade_success = await asyncio.gather(
-            social_task, ohlcv_task, ai_report_task, fundamental_grade_task, return_exceptions=True
-        )
+        # Social posts
+        social_success = await self.process_social_posts(symbol)
+        await asyncio.sleep(2)  # 2 second delay
         
-        # Handle results
-        if isinstance(social_success, Exception):
-            print(f"❌ Social posts failed for {symbol}: {social_success}")
-            social_success = False
+        # OHLCV data
+        ohlcv_success = await self.process_ohlcv_data(symbol)
+        await asyncio.sleep(2)  # 2 second delay
         
-        if isinstance(ohlcv_success, Exception):
-            print(f"❌ OHLCV failed for {symbol}: {ohlcv_success}")
-            ohlcv_success = False
+        # AI report (paid API)
+        ai_report_success = await self.process_ai_report(symbol)
+        await asyncio.sleep(3)  # 3 second delay for paid APIs
         
-        if isinstance(ai_report_success, Exception):
-            print(f"❌ AI report failed for {symbol}: {ai_report_success}")
-            ai_report_success = False
-        
-        if isinstance(fundamental_grade_success, Exception):
-            print(f"❌ Fundamental grade failed for {symbol}: {fundamental_grade_success}")
-            fundamental_grade_success = False
+        # Fundamental grade (paid API)
+        fundamental_grade_success = await self.process_fundamental_grade(symbol)
+        await asyncio.sleep(3)  # 3 second delay for paid APIs
         
         overall_success = social_success and ohlcv_success and ai_report_success and fundamental_grade_success
         
@@ -288,7 +298,7 @@ class CryptoPipeline:
         return overall_success
     
     async def run_pipeline(self):
-        """Run the complete pipeline"""
+        """Run the complete pipeline with sequential token processing"""
         try:
             print("🚀 Starting Crypto Data Pipeline")
             print("Processing: BTC, ETH, ADA")
@@ -298,11 +308,17 @@ class CryptoPipeline:
             tokens = self.get_dummy_tokens()
             print(f"Loaded {len(tokens)} tokens")
             
-            # Process all tokens
+            # Process tokens sequentially to avoid overwhelming the APIs
             results = []
-            for token in tokens:
+            for i, token in enumerate(tokens):
+                print(f"\n Processing token {i+1}/{len(tokens)}: {token.get('TOKEN_SYMBOL')}")
                 result = await self.process_token(token)
                 results.append(result)
+                
+                # Add delay between tokens (except for the last one)
+                if i < len(tokens) - 1:
+                    print("⏳ Waiting 5 seconds before processing next token...")
+                    await asyncio.sleep(5)
             
             # Process trading signals for all tokens together
             print(f"\n{'='*50}")

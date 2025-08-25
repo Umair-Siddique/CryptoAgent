@@ -63,54 +63,59 @@ class FundamentalGradeAPI:
     
     async def _make_paid_request(self, endpoint: str, headers: Dict[str, str] = None) -> Optional[Dict]:
         """Make a paid request to Token Metrics API"""
-        async with x402HttpxClient(account=self.account, base_url=API_BASE, timeout=self.timeouts) as client:
-            # Preflight to get payment requirements
-            try:
-                pre = await client.get(
-                    endpoint,
-                    headers={
+        try:
+            async with x402HttpxClient(account=self.account, base_url=API_BASE, timeout=self.timeouts) as client:
+                # Preflight to get payment requirements
+                try:
+                    pre = await client.get(
+                        endpoint,
+                        headers={
+                            "x-coinbase-402": "true",
+                            "accept": "application/json",
+                            **(headers or {})
+                        },
+                    )
+                    
+                    if pre.status_code == 200:
+                        return json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
+                    
+                    # Expect 402 with accepts
+                    body = json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
+                    accepts = body.get("accepts", [])
+                    if not accepts:
+                        error_msg = f"No 'accepts' found in 402 challenge: {body}"
+                        print(f"❌ API Error: {error_msg}")
+                        return {"error": error_msg, "status_code": pre.status_code, "response_body": body}
+
+                    chosen = pick_payment_token_from_accepts(accepts)
+                    if not chosen:
+                        error_msg = f"Could not pick token from accepts: {accepts}"
+                        print(f"❌ API Error: {error_msg}")
+                        return {"error": error_msg, "status_code": pre.status_code, "response_body": body}
+
+                    # Real call with payment
+                    payment_headers = {
                         "x-coinbase-402": "true",
                         "accept": "application/json",
                         **(headers or {})
-                    },
-                )
-                
-                if pre.status_code == 200:
-                    return json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
-                
-                # Expect 402 with accepts
-                body = json.loads((await pre.aread()).decode("utf-8", errors="ignore") or "{}")
-                accepts = body.get("accepts", [])
-                if not accepts:
-                    raise RuntimeError(f"No 'accepts' found in 402 challenge: {body}")
+                    }
+                    
+                    alias = (chosen.get("extra", {}) or {}).get("name")
+                    if alias:
+                        payment_headers["x-payment-token"] = alias.lower()
+                    
+                    r = await client.get(endpoint, headers=payment_headers)
+                    return json.loads((await r.aread()).decode("utf-8", errors="ignore") or "{}")
 
-                chosen = pick_payment_token_from_accepts(accepts)
-                if not chosen:
-                    raise RuntimeError(f"Could not pick token from accepts: {accepts}")
-
-                # Real call with payment
-                payment_headers = {
-                    "x-coinbase-402": "true",
-                    "accept": "application/json",
-                    **(headers or {})
-                }
-                
-                alias = (chosen.get("extra", {}) or {}).get("name")
-                if alias:
-                    payment_headers["x-payment-token"] = alias.lower()
-                else:
-                    if chosen.get("asset"):
-                        payment_headers["x-payment-token"] = str(chosen["asset"])
-
-                r = await client.get(endpoint, headers=payment_headers)
-                return json.loads((await r.aread()).decode("utf-8", errors="ignore") or "{}")
-
-            except httpx.TimeoutException as e:
-                print(f"Request timed out for {endpoint}: {e}")
-                return None
-            except Exception as e:
-                print(f"Request failed for {endpoint}: {e}")
-                return None
+                except Exception as e:
+                    error_msg = f"Request failed: {str(e)}"
+                    print(f"❌ API Error: {error_msg}")
+                    return {"error": error_msg, "exception": str(e)}
+                    
+        except Exception as e:
+            error_msg = f"Client initialization failed: {str(e)}"
+            print(f"❌ API Error: {error_msg}")
+            return {"error": error_msg, "exception": str(e)}
     
     async def get_fundamental_grade(self, symbol: str) -> Optional[Dict]:
         """
@@ -123,11 +128,28 @@ class FundamentalGradeAPI:
         print(f"Fetching fundamental grade for {symbol.upper()} from: {endpoint}")
         
         result = await self._make_paid_request(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for {symbol.upper()}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
         if result and result.get('success') and 'data' in result and result['data']:
             print(f"✅ Successfully fetched fundamental grade for {symbol.upper()}")
             return result['data'][0]  # Return the first (and only) item
         else:
             print(f"❌ Failed to fetch fundamental grade for {symbol.upper()}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Data content: {result.get('data')}")
+                print(f"   Full response: {result}")
             return None
     
     def store_fundamental_grade(self, fundamental_data: Dict) -> bool:
