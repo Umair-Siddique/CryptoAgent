@@ -13,8 +13,7 @@ This script processes 3 dummy tokens (BTC, ETH, ADA):
 
 import asyncio
 import os
-from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict
 from dotenv import load_dotenv
 
 # Import our modules
@@ -297,8 +296,85 @@ class CryptoPipeline:
         
         return overall_success
     
+    async def process_all_tokens_batched(self, tokens: List[Dict]) -> bool:
+        """Process all tokens using batched API calls"""
+        try:
+            print(f"\n{'='*50}")
+            print("Processing all tokens with batched API calls")
+            print(f"{'='*50}")
+            
+            # Extract symbols from tokens
+            symbols = [token.get('TOKEN_SYMBOL', '').upper() for token in tokens]
+            print(f"Processing symbols: {', '.join(symbols)}")
+            
+            # Store token metadata for all tokens
+            print("\n📊 Storing token metadata...")
+            for token in tokens:
+                self.store_token_data(token)
+            
+            # 1. Process social posts (individual calls as they might not support batching)
+            print("\n📱 Processing social posts...")
+            social_results = []
+            for symbol in symbols:
+                social_success = await self.process_social_posts(symbol)
+                social_results.append(social_success)
+                await asyncio.sleep(1)  # Small delay between social calls
+            
+            # 2. Process OHLCV data (batched)
+            print("\n📈 Processing OHLCV data...")
+            ohlcv_data = await self.token_api.get_ohlcv_data_multiple(symbols)
+            
+            # Store OHLCV data
+            ohlcv_success = True
+            for symbol, data in ohlcv_data.items():
+                hourly_success = self.ohlcv_storage.store_hourly_ohlcv(symbol, data.get('hourly', []))
+                daily_success = self.ohlcv_storage.store_daily_ohlcv(symbol, data.get('daily', []))
+                if not hourly_success or not daily_success:
+                    ohlcv_success = False
+            
+            await asyncio.sleep(2)  # Delay before next API call
+            
+            # 3. Process AI reports (batched)
+            print("\n🤖 Processing AI reports...")
+            ai_report_success = await self.ai_report_api.get_and_store_ai_report_multiple(symbols)
+            
+            await asyncio.sleep(3)  # Delay before next API call
+            
+            # 4. Process fundamental grade (batched)
+            print("\n📊 Processing fundamental grade...")
+            fundamental_grade_success = await self.fundamental_grade_api.fetch_and_store_fundamental_grade_multiple(symbols)
+            
+            await asyncio.sleep(2)  # Delay before next API call
+            
+            # 5. Process trading signals (already supports multiple symbols)
+            print("\n Processing trading signals...")
+            token_symbols_str = ",".join(symbols)
+            trading_signals_success = await self.process_trading_signals(token_symbols_str)
+            
+            # Calculate overall success
+            social_success = all(social_results)
+            overall_success = social_success and ohlcv_success and ai_report_success and fundamental_grade_success and trading_signals_success
+            
+            if overall_success:
+                print(f"\n✅ Successfully processed all tokens: {', '.join(symbols)}")
+            else:
+                print(f"\n❌ Some components failed for tokens: {', '.join(symbols)}")
+                print(f"   Social posts: {'✅' if social_success else '❌'}")
+                print(f"   OHLCV data: {'✅' if ohlcv_success else '❌'}")
+                print(f"   AI reports: {'✅' if ai_report_success else '❌'}")
+                print(f"   Fundamental grade: {'✅' if fundamental_grade_success else '❌'}")
+                print(f"   Trading signals: {'✅' if trading_signals_success else '❌'}")
+            
+            return overall_success
+            
+        except Exception as e:
+            print(f"❌ Error in batch processing: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     async def run_pipeline(self):
-        """Run the complete pipeline with sequential token processing"""
+        """Run the complete pipeline with batched API calls"""
         try:
             print("🚀 Starting Crypto Data Pipeline")
             print("Processing: BTC, ETH, ADA")
@@ -308,40 +384,18 @@ class CryptoPipeline:
             tokens = self.get_dummy_tokens()
             print(f"Loaded {len(tokens)} tokens")
             
-            # Process tokens sequentially to avoid overwhelming the APIs
-            results = []
-            for i, token in enumerate(tokens):
-                print(f"\n Processing token {i+1}/{len(tokens)}: {token.get('TOKEN_SYMBOL')}")
-                result = await self.process_token(token)
-                results.append(result)
-                
-                # Add delay between tokens (except for the last one)
-                if i < len(tokens) - 1:
-                    print("⏳ Waiting 5 seconds before processing next token...")
-                    await asyncio.sleep(5)
-            
-            # Process trading signals for all tokens together
-            print(f"\n{'='*50}")
-            print("Processing Trading Signals")
-            print(f"{'='*50}")
-            
-            token_symbols = ",".join([token.get('TOKEN_SYMBOL', '') for token in tokens])
-            trading_signals_success = await self.process_trading_signals(token_symbols)
+            # Process all tokens with batched API calls
+            success = await self.process_all_tokens_batched(tokens)
             
             # Summary
-            successful = sum(results)
-            total = len(results)
-            
             print(f"\n{'='*50}")
             print("PIPELINE COMPLETED")
             print(f"{'='*50}")
-            print(f"✅ Successfully processed: {successful}/{total} tokens")
-            print(f"📈 Trading signals: {'✅ Success' if trading_signals_success else '❌ Failed'}")
             
-            if successful == total and trading_signals_success:
-                print("🎉 All tokens and trading signals processed successfully!")
+            if success:
+                print("🎉 All tokens processed successfully with batched API calls!")
             else:
-                print("⚠️ Some components failed to process")
+                print("⚠️ Some components failed during batch processing")
             
         except Exception as e:
             print(f"❌ Pipeline failed: {e}")

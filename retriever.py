@@ -105,42 +105,10 @@ class TokenRetriever:
             
             print(f"✅ Created query embedding with {len(query_embedding)} dimensions")
             
-            # Try using the function first
-            try:
-                response = self.supabase.rpc(
-                    'match_embeddings',
-                    {
-                        'query_embedding': query_embedding,
-                        'match_threshold': 0.6,
-                        'match_count': top_k
-                    }
-                ).execute()
-                
-                if response.data:
-                    print(f"✅ Found {len(response.data)} similar embeddings using function")
-                    return response.data
-                else:
-                    print("ℹ️ No results found with function, trying lower threshold...")
-                    response = self.supabase.rpc(
-                        'match_embeddings',
-                        {
-                            'query_embedding': query_embedding,
-                            'match_threshold': 0.3,
-                            'match_count': top_k
-                        }
-                    ).execute()
-                    
-                    if response.data:
-                        print(f"✅ Found {len(response.data)} similar embeddings with lower threshold")
-                        return response.data
-                        
-            except Exception as func_error:
-                print(f"⚠️ Function failed: {func_error}")
-                print("🔄 Falling back to direct SQL...")
+            # Use direct SQL with vector similarity search
+            print("🔄 Using vector similarity search...")
             
-            # Fallback to direct SQL with manual similarity calculation
-            print("🔄 Using direct SQL with manual similarity calculation...")
-            # FIX: Only get today's embeddings
+            # Get embeddings from today with vector similarity
             response = self.supabase.table('embeddings').select('*').gte('created_at', f"{self.today_utc}T00:00:00Z").lt('created_at', f"{self.today_utc + timedelta(days=1)}T00:00:00Z").execute()
             
             if not response.data:
@@ -149,7 +117,7 @@ class TokenRetriever:
             
             print(f"📅 Found {len(response.data)} embeddings from today")
             
-            # Calculate similarity manually
+            # Calculate similarity manually for each embedding
             results = []
             for item in response.data:
                 if item.get('embedding_vector'):
@@ -163,7 +131,7 @@ class TokenRetriever:
             results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
             final_results = results[:top_k]
             
-            print(f"✅ Found {len(final_results)} similar embeddings using direct SQL")
+            print(f"✅ Found {len(final_results)} similar embeddings using semantic search")
             
             # Add debug info for each result
             for i, result in enumerate(final_results):
@@ -600,6 +568,164 @@ class TokenRetriever:
         
         print(f"\n{'='*100}")
     
+    async def generate_llm_analysis(self, comprehensive_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate LLM analysis with strict output format"""
+        try:
+            print("🤖 Generating LLM analysis with strict format...")
+            
+            # Prepare the data for LLM processing
+            token_symbol = comprehensive_data.get('token_symbol', 'UNKNOWN')
+            
+            # Extract key information from the data
+            social_summary = ""
+            if comprehensive_data.get('social_posts'):
+                total_sentiment = sum(post.get('post_sentiment', 0) for post in comprehensive_data['social_posts'])
+                avg_sentiment = total_sentiment / len(comprehensive_data['social_posts'])
+                total_interactions = sum(post.get('interactions_total', 0) for post in comprehensive_data['social_posts'])
+                social_summary = f"Social sentiment: {avg_sentiment:.2f}/5, {len(comprehensive_data['social_posts'])} posts, {total_interactions:,} total interactions"
+            
+            ai_summary = ""
+            if comprehensive_data.get('ai_reports'):
+                ai_summary = f"AI analysis available: {len(comprehensive_data['ai_reports'])} reports"
+            
+            fundamental_summary = ""
+            if comprehensive_data.get('fundamental_grade'):
+                grade = comprehensive_data['fundamental_grade'][0]
+                fundamental_summary = f"Fundamental grade: {grade.get('fundamental_grade', 'N/A')} ({grade.get('fundamental_grade_class', 'N/A')})"
+            
+            price_summary = ""
+            if comprehensive_data.get('daily_ohlcv'):
+                latest_daily = comprehensive_data['daily_ohlcv'][-1]
+                price_summary = f"Current price: ${latest_daily.get('close_price', 'N/A')}"
+            elif comprehensive_data.get('hourly_ohlcv'):
+                latest_hourly = comprehensive_data['hourly_ohlcv'][-1]
+                price_summary = f"Current price: ${latest_hourly.get('close_price', 'N/A')}"
+            
+            # Create the prompt for LLM
+            prompt = f"""
+You are a cryptocurrency investment analyst. Based on the following data for {token_symbol}, generate a trading recommendation in the EXACT JSON format specified below.
+
+DATA SUMMARY:
+- {social_summary}
+- {ai_summary}
+- {fundamental_summary}
+- {price_summary}
+
+AVAILABLE DATA:
+1. Social Posts: {len(comprehensive_data.get('social_posts', []))} posts
+2. AI Reports: {len(comprehensive_data.get('ai_reports', []))} reports
+3. Trading Signals: {len(comprehensive_data.get('trading_signals', []))} signals
+4. Fundamental Grade: {len(comprehensive_data.get('fundamental_grade', []))} records
+5. Daily OHLCV: {len(comprehensive_data.get('daily_ohlcv', []))} records
+6. Hourly OHLCV: {len(comprehensive_data.get('hourly_ohlcv', []))} records
+
+REQUIRED OUTPUT FORMAT (JSON only, no other text):
+{{
+  "new_positions": [
+    {{
+      "symbol": "{token_symbol}",
+      "entry": [current_price_or_recommended_entry],
+      "size_usd": [position_size_in_usd],
+      "stop_loss": [stop_loss_price],
+      "target_1": [first_target_price],
+      "target_2": [second_target_price],
+      "rationale": "[Detailed rationale based on the data provided]"
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Use ONLY the exact JSON format above
+- Do not include any explanatory text before or after the JSON
+- Base your analysis on the available data
+- If insufficient data, use conservative estimates
+- The rationale should reference specific data points from the provided information
+- All prices should be realistic based on current market conditions
+- Position size should be reasonable (typically 10-50 USD for testing)
+"""
+
+            # Call OpenAI API
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a cryptocurrency investment analyst. You must respond with ONLY valid JSON in the exact format specified. No additional text or explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            
+            # Extract and parse the response
+            llm_response = response.choices[0].message.content.strip()
+            
+            # Try to extract JSON from the response
+            import json
+            import re
+            
+            # Look for JSON pattern in the response
+            json_match = re.search(r'\{.*\}', llm_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                try:
+                    result = json.loads(json_str)
+                    print("✅ LLM analysis generated successfully")
+                    return result
+                except json.JSONDecodeError as e:
+                    print(f"❌ Failed to parse LLM JSON response: {e}")
+                    print(f"Raw response: {llm_response}")
+                    return self.generate_fallback_response(token_symbol)
+            else:
+                print(f"❌ No JSON found in LLM response: {llm_response}")
+                return self.generate_fallback_response(token_symbol)
+                
+        except Exception as e:
+            print(f"❌ Error generating LLM analysis: {e}")
+            return self.generate_fallback_response(comprehensive_data.get('token_symbol', 'UNKNOWN'))
+    
+    def generate_fallback_response(self, token_symbol: str) -> Dict[str, Any]:
+        """Generate fallback response when LLM fails"""
+        return {
+            "new_positions": [
+                {
+                    "symbol": token_symbol,
+                    "entry": 1.00,
+                    "size_usd": 20,
+                    "stop_loss": 0.80,
+                    "target_1": 1.20,
+                    "target_2": 1.50,
+                    "rationale": f"Fallback recommendation for {token_symbol} due to insufficient data or LLM processing error."
+                }
+            ]
+        }
+    
+    def print_llm_analysis(self, llm_result: Dict[str, Any]):
+        """Print the LLM analysis results"""
+        print(f"\n{'='*100}")
+        print(" LLM TRADING RECOMMENDATION")
+        print("=" * 60)
+        
+        if llm_result and 'new_positions' in llm_result:
+            for i, position in enumerate(llm_result['new_positions'], 1):
+                print(f"📊 Position {i}:")
+                print(f"  • Symbol: {position.get('symbol', 'N/A')}")
+                print(f"  • Entry Price: ${position.get('entry', 'N/A')}")
+                print(f"  • Position Size: ${position.get('size_usd', 'N/A')}")
+                print(f"  • Stop Loss: ${position.get('stop_loss', 'N/A')}")
+                print(f"  • Target 1: ${position.get('target_1', 'N/A')}")
+                print(f"  • Target 2: ${position.get('target_2', 'N/A')}")
+                print(f"  • Rationale: {position.get('rationale', 'N/A')}")
+                print()
+        else:
+            print("❌ No valid LLM analysis results")
+        
+        print(f"{'='*100}")
+
     async def run_comprehensive_analysis(self) -> bool:
         """Run the complete comprehensive token analysis"""
         try:
@@ -620,6 +746,19 @@ class TokenRetriever:
             
             # Step 3: Print comprehensive analysis
             self.print_comprehensive_data(comprehensive_data)
+            
+            # Step 4: Generate LLM analysis with strict format
+            llm_result = await self.generate_llm_analysis(comprehensive_data)
+            
+            # Step 5: Print LLM analysis
+            self.print_llm_analysis(llm_result)
+            
+            # Step 6: Print the raw JSON for easy copying
+            import json
+            print(f"\n📋 RAW JSON OUTPUT:")
+            print("=" * 60)
+            print(json.dumps(llm_result, indent=2))
+            print("=" * 60)
             
             print(f"\n✅ Comprehensive analysis completed for {top_token}")
             return True

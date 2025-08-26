@@ -229,6 +229,56 @@ class TokenMetricsAPI:
             print(f"Failed to fetch daily OHLCV for {token_symbol.upper()}. Response: {result}")
             return None
 
+    async def get_ohlcv_data_multiple(self, symbols: List[str]) -> Dict[str, Dict[str, List[Dict]]]:
+        """
+        Get both hourly and daily OHLCV data for multiple tokens in a single call
+        
+        Args:
+            symbols: List of token symbols (e.g., ["BTC", "ETH", "ADA"])
+        """
+        try:
+            print(f"📈 Fetching OHLCV data for {', '.join(symbols)}...")
+            
+            # Join symbols with comma for the API call
+            symbols_str = ",".join([s.upper() for s in symbols])
+            
+            # Fetch hourly OHLCV data for all symbols at once
+            hourly_endpoint = f"/v2/hourly-ohlcv?symbol={symbols_str}&limit=50&page=1"
+            print(f"Fetching hourly OHLCV from: {hourly_endpoint}")
+            hourly_result = await self._make_paid_request(hourly_endpoint)
+            
+            # Fetch daily OHLCV data for all symbols at once
+            daily_endpoint = f"/v2/daily-ohlcv?symbol={symbols_str}&limit=50&page=1"
+            print(f"Fetching daily OHLCV from: {daily_endpoint}")
+            daily_result = await self._make_paid_request(daily_endpoint)
+            
+            # Organize data by symbol
+            result = {}
+            for symbol in symbols:
+                symbol_upper = symbol.upper()
+                result[symbol_upper] = {
+                    'hourly': [],
+                    'daily': []
+                }
+                
+                # Filter hourly data for this symbol
+                if hourly_result and hourly_result.get('success') and 'data' in hourly_result:
+                    symbol_hourly = [record for record in hourly_result['data'] 
+                                   if record.get('TOKEN_SYMBOL', '').upper() == symbol_upper]
+                    result[symbol_upper]['hourly'] = symbol_hourly
+                
+                # Filter daily data for this symbol
+                if daily_result and daily_result.get('success') and 'data' in daily_result:
+                    symbol_daily = [record for record in daily_result['data'] 
+                                  if record.get('TOKEN_SYMBOL', '').upper() == symbol_upper]
+                    result[symbol_upper]['daily'] = symbol_daily
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error fetching OHLCV data for multiple symbols: {e}")
+            return {}
+
 async def main():
     """Test function for Token Metrics API"""
     try:

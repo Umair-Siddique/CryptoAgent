@@ -5,7 +5,7 @@ import json
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 import httpx
-
+import random
 from dotenv import load_dotenv
 from eth_account import Account
 from x402.clients.httpx import x402HttpxClient
@@ -296,6 +296,70 @@ class AIReportAPI:
                 
         except Exception as e:
             print(f"❌ Error in get_and_store_ai_report for {symbol}: {e}")
+            return False
+
+    async def get_ai_report_multiple(self, symbols: List[str]) -> Optional[List[Dict]]:
+        """
+        Get AI report for multiple token symbols
+        
+        Args:
+            symbols: List of token symbols (e.g., ["BTC", "ETH", "ADA"])
+        """
+        # Join symbols with comma for the API call
+        symbols_str = ",".join([s.upper() for s in symbols])
+        endpoint = f"/v2/ai-reports?symbol={symbols_str}"
+        print(f"Fetching AI report for {symbols_str} from: {endpoint}")
+        
+        result = await self._make_paid_request_with_retry(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for {symbols_str}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
+        if result and result.get('success') and 'data' in result:
+            print(f"✅ Successfully fetched {len(result['data'])} AI report records for {symbols_str}")
+            return result['data']
+        else:
+            print(f"❌ Failed to fetch AI report for {symbols_str}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Full response: {result}")
+            return None
+
+    async def get_and_store_ai_report_multiple(self, symbols: List[str]) -> bool:
+        """
+        Get AI report for multiple symbols and store them in Supabase
+        
+        Args:
+            symbols: List of token symbols (e.g., ["BTC", "ETH", "ADA"])
+        """
+        try:
+            # Get AI report data for all symbols
+            ai_report_data = await self.get_ai_report_multiple(symbols)
+            
+            if ai_report_data:
+                # Store the data
+                success = self.store_ai_report(ai_report_data)
+                if success:
+                    print(f"✅ Successfully fetched and stored AI report for {', '.join(symbols)}")
+                    return True
+                else:
+                    print(f"❌ Failed to store AI report for {', '.join(symbols)}")
+                    return False
+            else:
+                print(f"❌ No AI report data received for {', '.join(symbols)}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in get_and_store_ai_report_multiple for {symbols}: {e}")
             return False
 
 async def main():

@@ -237,6 +237,130 @@ class FundamentalGradeAPI:
             print(f"❌ Error in fetch_and_store_fundamental_grade for {symbol}: {e}")
             return False
 
+    async def get_fundamental_grade_multiple(self, symbols: List[str]) -> Optional[List[Dict]]:
+        """
+        Get fundamental grade data for multiple token symbols
+        
+        Args:
+            symbols: List of token symbols (e.g., ["BTC", "ETH", "ADA"])
+        """
+        # Join symbols with comma for the API call
+        symbols_str = ",".join([s.upper() for s in symbols])
+        endpoint = f"/v2/fundamental-grade?symbol={symbols_str}"
+        print(f"Fetching fundamental grade for {symbols_str} from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for {symbols_str}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
+        if result and result.get('success') and 'data' in result and result['data']:
+            print(f"✅ Successfully fetched fundamental grade for {symbols_str}")
+            return result['data']
+        else:
+            print(f"❌ Failed to fetch fundamental grade for {symbols_str}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Data content: {result.get('data')}")
+                print(f"   Full response: {result}")
+            return None
+
+    def store_fundamental_grade_multiple(self, fundamental_data: List[Dict]) -> bool:
+        """Store multiple fundamental grade data in Supabase"""
+        try:
+            if not fundamental_data:
+                print("No fundamental grade data to store")
+                return False
+            
+            print(f"Processing {len(fundamental_data)} fundamental grade records")
+            
+            # Prepare data for insertion with deduplication
+            db_data = []
+            seen_symbols = set()  # Track unique symbols to avoid duplicates
+            
+            for record in fundamental_data:
+                try:
+                    token_symbol = record.get('TOKEN_SYMBOL', '').upper()
+                    
+                    # Skip if we've already seen this symbol
+                    if token_symbol in seen_symbols:
+                        print(f"Skipping duplicate record for {token_symbol}")
+                        continue
+                    
+                    seen_symbols.add(token_symbol)
+                    
+                    db_record = {
+                        'user_id': self.user_id,
+                        'token_id': record.get('TOKEN_ID'),
+                        'token_name': record.get('TOKEN_NAME'),
+                        'token_symbol': token_symbol,
+                        'fundamental_grade': float(record.get('FUNDAMENTAL_GRADE', 0)) if record.get('FUNDAMENTAL_GRADE') else None,
+                        'fundamental_grade_class': record.get('FUNDAMENTAL_GRADE_CLASS'),
+                        'community_score': float(record.get('COMMUNITY_SCORE', 0)) if record.get('COMMUNITY_SCORE') else None,
+                        'exchange_score': float(record.get('EXCHANGE_SCORE', 0)) if record.get('EXCHANGE_SCORE') else None,
+                        'vc_score': float(record.get('VC_SCORE', 0)) if record.get('VC_SCORE') else None,
+                        'tokenomics_score': float(record.get('TOKENOMICS_SCORE', 0)) if record.get('TOKENOMICS_SCORE') else None,
+                        'defi_scanner_score': float(record.get('DEFI_SCANNER_SCORE', 0)) if record.get('DEFI_SCANNER_SCORE') else None,
+                        'created_at': datetime.now(timezone.utc).isoformat()
+                    }
+                    db_data.append(db_record)
+                except Exception as e:
+                    print(f"Error processing fundamental grade record: {e}")
+                    continue
+            
+            if not db_data:
+                print("No valid fundamental grade data to insert")
+                return False
+            
+            print(f"Inserting {len(db_data)} unique fundamental grade records...")
+            
+            # Insert data with conflict resolution (upsert)
+            result = self.supabase.table('fundamental_grade').upsert(
+                db_data,
+                on_conflict='token_symbol'  # Update if token_symbol already exists
+            ).execute()
+            
+            print(f"✅ Successfully stored {len(db_data)} fundamental grade records")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error storing fundamental grade data: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    async def fetch_and_store_fundamental_grade_multiple(self, symbols: List[str]) -> bool:
+        """
+        Fetch fundamental grade from API for multiple symbols and store in database
+        
+        Args:
+            symbols: List of token symbols (e.g., ["BTC", "ETH", "ADA"])
+        """
+        try:
+            # Fetch data from API for all symbols
+            fundamental_data = await self.get_fundamental_grade_multiple(symbols)
+            
+            if fundamental_data:
+                # Store in database
+                success = self.store_fundamental_grade_multiple(fundamental_data)
+                return success
+            else:
+                print(f"❌ No fundamental grade data received for {', '.join(symbols)}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in fetch_and_store_fundamental_grade_multiple for {symbols}: {e}")
+            return False
+
 async def main():
     """Test function for Fundamental Grade API"""
     try:
