@@ -229,6 +229,64 @@ class TokenMetricsAPI:
             print(f"Failed to fetch daily OHLCV for {token_symbol.upper()}. Response: {result}")
             return None
 
+    async def get_hourly_ohlcv_by_id(self, token_id: int) -> Optional[List[Dict]]:
+        """
+        Get hourly OHLCV data for today only for a specific token using token ID
+        
+        Args:
+            token_id: Token ID (e.g., 3375 for BTC)
+        """
+        # Use the correct endpoint that returns multiple tokens
+        endpoint = f"/v2/hourly-ohlcv?limit=50&page=1"
+        print(f"Fetching hourly OHLCV data from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result and result['data']:
+            # Filter data for the specific token ID
+            filtered_data = [
+                record for record in result['data'] 
+                if record.get('TOKEN_ID') == token_id
+            ]
+            
+            if filtered_data:
+                print(f"✅ Successfully fetched {len(filtered_data)} hourly OHLCV records for token ID {token_id}")
+                return filtered_data
+            else:
+                print(f"ℹ️ No hourly OHLCV data found for token ID {token_id}")
+                return []
+        else:
+            print(f"❌ Failed to fetch hourly OHLCV data. Response: {result}")
+            return None
+    
+    async def get_daily_ohlcv_by_id(self, token_id: int) -> Optional[List[Dict]]:
+        """
+        Get daily OHLCV data for today only for a specific token using token ID
+        
+        Args:
+            token_id: Token ID (e.g., 3375 for BTC)
+        """
+        # Use the correct endpoint that returns multiple tokens
+        endpoint = f"/v2/daily-ohlcv?limit=50&page=1"
+        print(f"Fetching daily OHLCV data from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result and result['data']:
+            # Filter data for the specific token ID
+            filtered_data = [
+                record for record in result['data'] 
+                if record.get('TOKEN_ID') == token_id
+            ]
+            
+            if filtered_data:
+                print(f"✅ Successfully fetched {len(filtered_data)} daily OHLCV records for token ID {token_id}")
+                return filtered_data
+            else:
+                print(f"ℹ️ No daily OHLCV data found for token ID {token_id}")
+                return []
+        else:
+            print(f"❌ Failed to fetch daily OHLCV data. Response: {result}")
+            return None
+
     async def get_ohlcv_data_multiple(self, symbols: List[str]) -> Dict[str, Dict[str, List[Dict]]]:
         """
         Get both hourly and daily OHLCV data for multiple tokens in a single call
@@ -277,6 +335,52 @@ class TokenMetricsAPI:
             
         except Exception as e:
             print(f"❌ Error fetching OHLCV data for multiple symbols: {e}")
+            return {}
+
+    async def get_ohlcv_data_multiple_by_ids(self, token_ids: List[int]) -> Dict[int, Dict[str, List[Dict]]]:
+        """
+        Get both hourly and daily OHLCV data for multiple tokens using token IDs
+        
+        Args:
+            token_ids: List of token IDs (e.g., [3375, 3306, 3315])
+        """
+        try:
+            print(f"📈 Fetching OHLCV data for token IDs: {token_ids}...")
+            
+            # Fetch hourly OHLCV data for all tokens at once
+            hourly_endpoint = f"/v2/hourly-ohlcv?limit=50&page=1"
+            print(f"Fetching hourly OHLCV from: {hourly_endpoint}")
+            hourly_result = await self._make_paid_request(hourly_endpoint)
+            
+            # Fetch daily OHLCV data for all tokens at once
+            daily_endpoint = f"/v2/daily-ohlcv?limit=50&page=1"
+            print(f"Fetching daily OHLCV from: {daily_endpoint}")
+            daily_result = await self._make_paid_request(daily_endpoint)
+            
+            # Organize data by token ID
+            result = {}
+            for token_id in token_ids:
+                result[token_id] = {
+                    'hourly': [],
+                    'daily': []
+                }
+                
+                # Filter hourly data for this token ID
+                if hourly_result and hourly_result.get('success') and 'data' in hourly_result:
+                    token_hourly = [record for record in hourly_result['data'] 
+                                  if record.get('TOKEN_ID') == token_id]
+                    result[token_id]['hourly'] = token_hourly
+                
+                # Filter daily data for this token ID
+                if daily_result and daily_result.get('success') and 'data' in daily_result:
+                    token_daily = [record for record in daily_result['data'] 
+                                 if record.get('TOKEN_ID') == token_id]
+                    result[token_id]['daily'] = token_daily
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error fetching OHLCV data for multiple token IDs: {e}")
             return {}
 
 async def main():

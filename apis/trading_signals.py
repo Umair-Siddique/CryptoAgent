@@ -124,6 +124,32 @@ class TradingSignalsAPI:
             print(f"❌ Failed to fetch trading signals. Response: {result}")
             return None
 
+    async def get_trading_signals_by_ids(self, token_ids: List[int], start_date: str = None) -> Optional[List[Dict]]:
+        """
+        Get trading signals data for specific tokens using token IDs
+        
+        Args:
+            token_ids: List of token IDs (e.g., [3375, 3306, 3315])
+            start_date: Start date in YYYY-MM-DD format (default: today)
+        """
+        if start_date is None:
+            start_date = get_today_date()
+        
+        # Join token IDs with comma for the API call
+        token_ids_str = ",".join([str(tid) for tid in token_ids])
+        
+        # Build the endpoint with parameters
+        endpoint = f"/v2/trading-signals?startDate={start_date}&token_id={token_ids_str}"
+        print(f"Fetching trading signals from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        if result and result.get('success') and 'data' in result:
+            print(f"✅ Successfully fetched {len(result['data'])} trading signals records")
+            return result['data']
+        else:
+            print(f"❌ Failed to fetch trading signals. Response: {result}")
+            return None
+
 async def main():
     """Test function for Trading Signals API"""
     try:

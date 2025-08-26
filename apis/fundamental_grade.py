@@ -361,6 +361,124 @@ class FundamentalGradeAPI:
             print(f"❌ Error in fetch_and_store_fundamental_grade_multiple for {symbols}: {e}")
             return False
 
+    async def get_fundamental_grade_by_id(self, token_id: int) -> Optional[Dict]:
+        """
+        Get fundamental grade data for a specific token using token ID
+        
+        Args:
+            token_id: Token ID (e.g., 3375 for BTC)
+        """
+        endpoint = f"/v2/fundamental-grade?token_id={token_id}"
+        print(f"Fetching fundamental grade for token ID {token_id} from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for token ID {token_id}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
+        if result and result.get('success') and 'data' in result and result['data']:
+            print(f"✅ Successfully fetched fundamental grade for token ID {token_id}")
+            return result['data'][0]  # Return the first (and only) item
+        else:
+            print(f"❌ Failed to fetch fundamental grade for token ID {token_id}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Data content: {result.get('data')}")
+                print(f"   Full response: {result}")
+            return None
+
+    async def fetch_and_store_fundamental_grade_by_id(self, token_id: int) -> bool:
+        """
+        Fetch fundamental grade from API using token ID and store in database
+        
+        Args:
+            token_id: Token ID (e.g., 3375 for BTC)
+        """
+        try:
+            # Fetch data from API
+            fundamental_data = await self.get_fundamental_grade_by_id(token_id)
+            
+            if fundamental_data:
+                # Store in database
+                success = self.store_fundamental_grade(fundamental_data)
+                return success
+            else:
+                print(f"❌ No fundamental grade data received for token ID {token_id}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in fetch_and_store_fundamental_grade_by_id for token ID {token_id}: {e}")
+            return False
+
+    async def get_fundamental_grade_multiple_by_ids(self, token_ids: List[int]) -> Optional[List[Dict]]:
+        """
+        Get fundamental grade data for multiple token IDs
+        
+        Args:
+            token_ids: List of token IDs (e.g., [3375, 3306, 3315])
+        """
+        # Join token IDs with comma for the API call
+        token_ids_str = ",".join([str(tid) for tid in token_ids])
+        endpoint = f"/v2/fundamental-grade?token_id={token_ids_str}"
+        print(f"Fetching fundamental grade for token IDs {token_ids_str} from: {endpoint}")
+        
+        result = await self._make_paid_request(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for token IDs {token_ids_str}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
+        if result and result.get('success') and 'data' in result and result['data']:
+            print(f"✅ Successfully fetched fundamental grade for token IDs {token_ids_str}")
+            return result['data']
+        else:
+            print(f"❌ Failed to fetch fundamental grade for token IDs {token_ids_str}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Data content: {result.get('data')}")
+                print(f"   Full response: {result}")
+            return None
+
+    async def fetch_and_store_fundamental_grade_multiple_by_ids(self, token_ids: List[int]) -> bool:
+        """
+        Fetch fundamental grade from API using token IDs and store in database
+        
+        Args:
+            token_ids: List of token IDs (e.g., [3375, 3306, 3315])
+        """
+        try:
+            # Fetch data from API
+            fundamental_data = await self.get_fundamental_grade_multiple_by_ids(token_ids)
+            
+            if fundamental_data:
+                # Store in database
+                success = self.store_fundamental_grade_multiple(fundamental_data)
+                return success
+            else:
+                print(f"❌ No fundamental grade data received for token IDs {token_ids}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in fetch_and_store_fundamental_grade_multiple_by_ids for token IDs {token_ids}: {e}")
+            return False
+
 async def main():
     """Test function for Fundamental Grade API"""
     try:

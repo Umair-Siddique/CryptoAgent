@@ -362,6 +362,132 @@ class AIReportAPI:
             print(f"❌ Error in get_and_store_ai_report_multiple for {symbols}: {e}")
             return False
 
+    async def get_ai_report_by_id(self, token_id: int) -> Optional[List[Dict]]:
+        """
+        Get AI report for a specific token using token ID
+        
+        Args:
+            token_id: Token ID (e.g., 3375 for BTC)
+        """
+        endpoint = f"/v2/ai-reports?token_id={token_id}"
+        print(f"Fetching AI report for token ID {token_id} from: {endpoint}")
+        
+        result = await self._make_paid_request_with_retry(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for token ID {token_id}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
+        if result and result.get('success') and 'data' in result:
+            print(f"✅ Successfully fetched {len(result['data'])} AI report records for token ID {token_id}")
+            return result['data']
+        else:
+            print(f"❌ Failed to fetch AI report for token ID {token_id}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Full response: {result}")
+            return None
+
+    async def get_and_store_ai_report_by_id(self, token_id: int) -> bool:
+        """
+        Get AI report for a token ID and store it in Supabase
+        
+        Args:
+            token_id: Token ID (e.g., 3375 for BTC)
+        """
+        try:
+            # Get AI report data
+            ai_report_data = await self.get_ai_report_by_id(token_id)
+            
+            if ai_report_data:
+                # Store the data
+                success = self.store_ai_report(ai_report_data)
+                if success:
+                    print(f"✅ Successfully fetched and stored AI report for token ID {token_id}")
+                    return True
+                else:
+                    print(f"❌ Failed to store AI report for token ID {token_id}")
+                    return False
+            else:
+                print(f"❌ No AI report data received for token ID {token_id}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in get_and_store_ai_report_by_id for token ID {token_id}: {e}")
+            return False
+
+    async def get_ai_report_multiple_by_ids(self, token_ids: List[int]) -> Optional[List[Dict]]:
+        """
+        Get AI report for multiple token IDs
+        
+        Args:
+            token_ids: List of token IDs (e.g., [3375, 3306, 3315])
+        """
+        # Join token IDs with comma for the API call
+        token_ids_str = ",".join([str(tid) for tid in token_ids])
+        endpoint = f"/v2/ai-reports?token_id={token_ids_str}"
+        print(f"Fetching AI report for token IDs {token_ids_str} from: {endpoint}")
+        
+        result = await self._make_paid_request_with_retry(endpoint)
+        
+        # Check if there was an error in the request
+        if result and "error" in result:
+            print(f"❌ API request failed for token IDs {token_ids_str}: {result['error']}")
+            if "response_body" in result:
+                print(f"   Response body: {result['response_body']}")
+            if "status_code" in result:
+                print(f"   Status code: {result['status_code']}")
+            if "exception" in result:
+                print(f"   Exception: {result['exception']}")
+            return None
+            
+        if result and result.get('success') and 'data' in result:
+            print(f"✅ Successfully fetched {len(result['data'])} AI report records for token IDs {token_ids_str}")
+            return result['data']
+        else:
+            print(f"❌ Failed to fetch AI report for token IDs {token_ids_str}. Response: {result}")
+            if result:
+                print(f"   Success field: {result.get('success')}")
+                print(f"   Data field present: {'data' in result}")
+                print(f"   Full response: {result}")
+            return None
+
+    async def get_and_store_ai_report_multiple_by_ids(self, token_ids: List[int]) -> bool:
+        """
+        Get AI report for multiple token IDs and store them in Supabase
+        
+        Args:
+            token_ids: List of token IDs (e.g., [3375, 3306, 3315])
+        """
+        try:
+            # Get AI report data for all token IDs
+            ai_report_data = await self.get_ai_report_multiple_by_ids(token_ids)
+            
+            if ai_report_data:
+                # Store the data
+                success = self.store_ai_report(ai_report_data)
+                if success:
+                    print(f"✅ Successfully fetched and stored AI report for token IDs {token_ids}")
+                    return True
+                else:
+                    print(f"❌ Failed to store AI report for token IDs {token_ids}")
+                    return False
+            else:
+                print(f"❌ No AI report data received for token IDs {token_ids}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in get_and_store_ai_report_multiple_by_ids for token IDs {token_ids}: {e}")
+            return False
+
 async def main():
     """Test function for AI Report API"""
     try:
