@@ -141,29 +141,28 @@ class EmbeddingPipeline:
         
         return " | ".join(text_parts)
     
-    async def process_todays_social_posts_embeddings(self, token_symbol: str) -> bool:
+    async def process_todays_social_posts_embeddings(self, token_name: str) -> bool:
         """Process embeddings for social posts created TODAY for a specific token"""
         try:
-            print(f" Processing TODAY'S social post embeddings for {token_symbol}...")
+            print(f" Processing TODAY'S social post embeddings for {token_name}...")
             
             # Fetch social posts created today from Supabase
-            response = self.supabase.table('posts').select('*').eq('token', token_symbol).execute()
+            response = self.supabase.table('posts').select('*').eq('token_name', token_name).execute()
             
             if not response.data:
-                print(f"ℹ️ No social posts found for {token_symbol}")
+                print(f"ℹ️ No social posts found for {token_name}")
                 return True
             
-            print(f"🔍 Found {len(response.data)} total posts for {token_symbol}")
+            print(f"🔍 Found {len(response.data)} total posts for {token_name}")
             
             # Debug: Show all post dates
-            print(f"📅 Debug - All post dates for {token_symbol}:")
+            print(f"📅 Debug - All post dates for {token_name}:")
             for post in response.data[:5]:  # Show first 5 posts
                 print(f"  Post {post['id']}: ingested_at={post.get('ingested_at')}")
             
             # Filter posts created today (using UTC comparison)
             todays_posts = []
             for post in response.data:
-                # CHANGE: Use 'ingested_at' instead of 'created_at'
                 if post.get('ingested_at'):
                     try:
                         # Parse the ingested_at timestamp (it's already in UTC from Supabase)
@@ -180,7 +179,7 @@ class EmbeddingPipeline:
                         continue
             
             if not todays_posts:
-                print(f"ℹ️ No social posts created today (UTC) for {token_symbol}")
+                print(f"ℹ️ No social posts created today (UTC) for {token_name}")
                 print(f"  Today's date (UTC): {self.today_utc}")
                 print(f"  Tip: Check if your data was created in a different timezone or date")
                 return True
@@ -189,13 +188,6 @@ class EmbeddingPipeline:
             
             success_count = 0
             for post in todays_posts:
-                # Check if embedding already exists
-                existing = self.supabase.table('embeddings').select('id').eq('content_type', 'social_post').eq('content_id', post['id']).execute()
-                
-                if existing.data:
-                    print(f"ℹ️ Embedding already exists for post {post['id']}")
-                    continue
-                
                 # Prepare text content
                 content_text = self.prepare_social_post_text(post)
                 
@@ -207,13 +199,13 @@ class EmbeddingPipeline:
                 
                 # Prepare metadata
                 metadata = {
+                    'post_id': post['id'],  # Store post ID in metadata
                     'post_title': post.get('post_title'),
                     'post_sentiment': post.get('post_sentiment'),
                     'creator_followers': post.get('creator_followers'),
                     'interactions_24h': post.get('interactions_24h'),
                     'interactions_total': post.get('interactions_total'),
                     'post_link': post.get('post_link'),
-                    # CHANGE: Use 'ingested_at' instead of 'created_at'
                     'created_date': post.get('ingested_at')
                 }
                 
@@ -221,8 +213,7 @@ class EmbeddingPipeline:
                 embedding_data = {
                     'user_id': self.user_id,
                     'content_type': 'social_post',
-                    'content_id': post['id'],
-                    'token_symbol': token_symbol,
+                    'token_name': token_name,
                     'content_text': content_text,
                     'embedding_vector': embedding,
                     'metadata': metadata
@@ -236,26 +227,26 @@ class EmbeddingPipeline:
                 else:
                     print(f"❌ Failed to store embedding for post {post['id']}")
             
-            print(f"✅ Successfully processed {success_count}/{len(todays_posts)} social post embeddings for {token_symbol}")
+            print(f"✅ Successfully processed {success_count}/{len(todays_posts)} social post embeddings for {token_name}")
             return True
             
         except Exception as e:
-            print(f"❌ Error processing social post embeddings for {token_symbol}: {e}")
+            print(f"❌ Error processing social post embeddings for {token_name}: {e}")
             return False
     
-    async def process_todays_ai_reports_embeddings(self, token_symbol: str) -> bool:
+    async def process_todays_ai_reports_embeddings(self, token_name: str) -> bool:
         """Process embeddings for AI reports created TODAY for a specific token"""
         try:
-            print(f"�� Processing TODAY'S AI report embeddings for {token_symbol}...")
+            print(f" Processing TODAY'S AI report embeddings for {token_name}...")
             
             # Fetch AI reports created today from Supabase
-            response = self.supabase.table('ai_reports').select('*').eq('token_symbol', token_symbol).execute()
+            response = self.supabase.table('ai_reports').select('*').eq('token_name', token_name).execute()
             
             if not response.data:
-                print(f"ℹ️ No AI reports found for {token_symbol}")
+                print(f"ℹ️ No AI reports found for {token_name}")
                 return True
             
-            print(f"🔍 Found {len(response.data)} total AI reports for {token_symbol}")
+            print(f"🔍 Found {len(response.data)} total AI reports for {token_name}")
             
             # Filter reports created today (using UTC comparison)
             todays_reports = []
@@ -276,7 +267,7 @@ class EmbeddingPipeline:
                         continue
             
             if not todays_reports:
-                print(f"ℹ️ No AI reports created today (UTC) for {token_symbol}")
+                print(f"ℹ️ No AI reports created today (UTC) for {token_name}")
                 print(f" Tip: Check if your data was created in a different timezone or date")
                 return True
             
@@ -284,13 +275,6 @@ class EmbeddingPipeline:
             
             success_count = 0
             for report in todays_reports:
-                # Check if embedding already exists
-                existing = self.supabase.table('embeddings').select('id').eq('content_type', 'ai_report').eq('content_id', report['id']).execute()
-                
-                if existing.data:
-                    print(f"ℹ️ Embedding already exists for AI report {report['id']}")
-                    continue
-                
                 # Prepare text content
                 content_text = self.prepare_ai_report_text(report)
                 
@@ -302,6 +286,7 @@ class EmbeddingPipeline:
                 
                 # Prepare metadata
                 metadata = {
+                    'report_id': report['id'],  # Store report ID in metadata
                     'token_id': report.get('token_id'),
                     'token_name': report.get('token_name'),
                     'investment_analysis_pointer': report.get('investment_analysis_pointer'),
@@ -312,8 +297,7 @@ class EmbeddingPipeline:
                 embedding_data = {
                     'user_id': self.user_id,
                     'content_type': 'ai_report',
-                    'content_id': report['id'],
-                    'token_symbol': token_symbol,
+                    'token_name': token_name,
                     'content_text': content_text,
                     'embedding_vector': embedding,
                     'metadata': metadata
@@ -327,23 +311,23 @@ class EmbeddingPipeline:
                 else:
                     print(f"❌ Failed to store embedding for AI report {report['id']}")
             
-            print(f"✅ Successfully processed {success_count}/{len(todays_reports)} AI report embeddings for {token_symbol}")
+            print(f"✅ Successfully processed {success_count}/{len(todays_reports)} AI report embeddings for {token_name}")
             return True
             
         except Exception as e:
-            print(f"❌ Error processing AI report embeddings for {token_symbol}: {e}")
+            print(f"❌ Error processing AI report embeddings for {token_name}: {e}")
             return False
     
-    async def process_token_embeddings(self, token_symbol: str) -> bool:
+    async def process_token_embeddings(self, token_name: str) -> bool:
         """Process embeddings for both social posts and AI reports created TODAY for a token"""
         try:
             print(f"\n{'='*50}")
-            print(f"Processing TODAY'S Embeddings for: {token_symbol}")
+            print(f"Processing TODAY'S Embeddings for: {token_name}")
             print(f"{'='*50}")
             
             # Process social posts and AI reports in parallel
-            social_task = self.process_todays_social_posts_embeddings(token_symbol)
-            ai_report_task = self.process_todays_ai_reports_embeddings(token_symbol)
+            social_task = self.process_todays_social_posts_embeddings(token_name)
+            ai_report_task = self.process_todays_ai_reports_embeddings(token_name)
             
             social_success, ai_report_success = await asyncio.gather(
                 social_task, ai_report_task, return_exceptions=True
@@ -351,39 +335,39 @@ class EmbeddingPipeline:
             
             # Handle results
             if isinstance(social_success, Exception):
-                print(f"❌ Social posts embeddings failed for {token_symbol}: {social_success}")
+                print(f"❌ Social posts embeddings failed for {token_name}: {social_success}")
                 social_success = False
             
             if isinstance(ai_report_success, Exception):
-                print(f"❌ AI report embeddings failed for {token_symbol}: {ai_report_success}")
+                print(f"❌ AI report embeddings failed for {token_name}: {ai_report_success}")
                 ai_report_success = False
             
             overall_success = social_success and ai_report_success
             
             if overall_success:
-                print(f"✅ Successfully processed all TODAY'S embeddings for {token_symbol}")
+                print(f"✅ Successfully processed all TODAY'S embeddings for {token_name}")
             else:
-                print(f"❌ Failed to process some TODAY'S embeddings for {token_symbol}")
+                print(f"❌ Failed to process some TODAY'S embeddings for {token_name}")
             
             return overall_success
             
         except Exception as e:
-            print(f"❌ Error processing embeddings for {token_symbol}: {e}")
+            print(f"❌ Error processing embeddings for {token_name}: {e}")
             return False
     
-    async def run_embedding_pipeline(self, token_symbols: List[str]) -> bool:
+    async def run_embedding_pipeline(self, token_names: List[str]) -> bool:
         """Run the complete embedding pipeline for multiple tokens (TODAY'S data only)"""
         try:
             print("🚀 Starting Semantic Search Embedding Pipeline")
-            print(f"�� Processing TODAY'S data for tokens: {', '.join(token_symbols)}")
-            print(f"�� Model: {self.model} ({self.dimensions} dimensions)")
+            print(f" Processing TODAY'S data for tokens: {', '.join(token_names)}")
+            print(f" Model: {self.model} ({self.dimensions} dimensions)")
             print(f"🌍 Using UTC date: {self.today_utc}")
             print(f"{'='*50}")
             
             # Process all tokens
             results = []
-            for token_symbol in token_symbols:
-                result = await self.process_token_embeddings(token_symbol)
+            for token_name in token_names:
+                result = await self.process_token_embeddings(token_name)
                 results.append(result)
             
             # Summary
@@ -414,8 +398,8 @@ async def main():
     try:
         # Test with sample tokens
         pipeline = EmbeddingPipeline()
-        token_symbols = ['BTC', 'ETH', 'ADA']
-        await pipeline.run_embedding_pipeline(token_symbols)
+        token_names = ['BTC', 'ETH', 'ADA']
+        await pipeline.run_embedding_pipeline(token_names)
     except Exception as e:
         print(f"❌ Failed to start embedding pipeline: {e}")
         import traceback

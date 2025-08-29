@@ -62,7 +62,7 @@ create table public.posts (
   -- renamed (avoid reserved word)
   ingested_at timestamptz not null default now(),
 
-  token text,
+  token_name text,        -- CHANGE: Use token_name instead of token
   post_title text not null,
   post_link text,
   post_sentiment double precision,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     user_id UUID NOT NULL,
     content_type VARCHAR(50) NOT NULL,
     content_id UUID NOT NULL,  -- CHANGE: Use UUID instead of BIGINT
-    token_symbol VARCHAR(20),
+    token_name VARCHAR(100),   -- CHANGE: Use token_name instead of token_symbol
     content_text TEXT NOT NULL,
     embedding_vector vector(1536),
     metadata JSONB,
@@ -153,3 +153,29 @@ CREATE INDEX IF NOT EXISTS idx_ai_reports_created_at ON ai_reports(created_at);
 -- Create index for fundamental_grade table
 CREATE INDEX IF NOT EXISTS idx_fundamental_grade_token_symbol ON fundamental_grade(token_symbol);
 CREATE INDEX IF NOT EXISTS idx_fundamental_grade_created_at ON fundamental_grade(created_at);
+
+-- Create hourly_trading_signals table
+CREATE TABLE IF NOT EXISTS hourly_trading_signals (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    token_id VARCHAR(50),
+    token_name VARCHAR(100),
+    token_symbol VARCHAR(20) NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    close_price DECIMAL(20, 8),
+    signal VARCHAR(10),
+    position VARCHAR(10),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(token_symbol, timestamp)
+);
+
+-- Create index for better performance
+CREATE INDEX IF NOT EXISTS idx_hourly_trading_signals_token_symbol ON hourly_trading_signals(token_symbol);
+CREATE INDEX IF NOT EXISTS idx_hourly_trading_signals_timestamp ON hourly_trading_signals(timestamp);
+CREATE INDEX IF NOT EXISTS idx_hourly_trading_signals_created_at ON hourly_trading_signals(created_at);
+
+-- Update the posts index to use token_name
+create index if not exists posts_token_name_ingested_at_idx on public.posts (token_name, ingested_at desc);
+
+

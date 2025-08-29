@@ -24,6 +24,8 @@ from apis.trading_signals import TradingSignalsAPI
 from apis.trading_signals_storage import TradingSignalsStorage
 from apis.ai_report import AIReportAPI
 from apis.fundamental_grade import FundamentalGradeAPI
+from apis.hourly_trading_signals import HourlyTradingSignalsAPI
+from apis.hourly_trading_signals_storage import HourlyTradingSignalsStorage
 
 # Supabase client
 try:
@@ -50,6 +52,8 @@ class CryptoPipeline:
         self.ohlcv_storage = OHLCVStorage()
         self.trading_signals_api = TradingSignalsAPI()
         self.trading_signals_storage = TradingSignalsStorage()
+        self.hourly_trading_signals_api = HourlyTradingSignalsAPI()
+        self.hourly_trading_signals_storage = HourlyTradingSignalsStorage()
         self.ai_report_api = AIReportAPI()
         self.fundamental_grade_api = FundamentalGradeAPI()
     
@@ -253,6 +257,32 @@ class CryptoPipeline:
             print(f"❌ Error processing trading signals for {token_symbols}: {e}")
             return False
     
+    async def process_hourly_trading_signals(self, token_ids: List[int], token_symbols: str) -> bool:
+        """Process hourly trading signals for multiple tokens using token IDs"""
+        try:
+            print(f"📊 Fetching hourly trading signals for {token_symbols} (IDs: {token_ids})...")
+            
+            # Fetch hourly trading signals using token IDs
+            signals = await self.hourly_trading_signals_api.get_hourly_trading_signals(token_ids=token_ids)
+            
+            if not signals:
+                print(f"ℹ️ No hourly trading signals found for {token_symbols}")
+                return True
+            
+            # Store hourly trading signals
+            success = self.hourly_trading_signals_storage.store_hourly_trading_signals(signals)
+            
+            if success:
+                print(f"✅ Successfully processed hourly trading signals for {token_symbols}")
+                return True
+            else:
+                print(f"❌ Failed to store hourly trading signals for {token_symbols}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error processing hourly trading signals for {token_symbols}: {e}")
+            return False
+    
     async def process_token(self, token: Dict) -> bool:
         """Process a single token with delays between API calls"""
         symbol = token.get('TOKEN_SYMBOL', '').upper()
@@ -358,9 +388,15 @@ class CryptoPipeline:
             token_symbols_str = ",".join(symbols)
             trading_signals_success = await self.process_trading_signals(token_ids, token_symbols_str)
             
+            await asyncio.sleep(2)  # Delay before next API call
+            
+            # 6. Process hourly trading signals (using token IDs)
+            print("\n📊 Processing hourly trading signals...")
+            hourly_trading_signals_success = await self.process_hourly_trading_signals(token_ids, token_symbols_str)
+            
             # Calculate overall success
             social_success = all(social_results)
-            overall_success = social_success and ohlcv_success and ai_report_success and fundamental_grade_success and trading_signals_success
+            overall_success = social_success and ohlcv_success and ai_report_success and fundamental_grade_success and trading_signals_success and hourly_trading_signals_success
             
             if overall_success:
                 print(f"\n✅ Successfully processed all tokens: {', '.join(symbols)}")
@@ -371,6 +407,7 @@ class CryptoPipeline:
                 print(f"   AI reports: {'✅' if ai_report_success else '❌'}")
                 print(f"   Fundamental grade: {'✅' if fundamental_grade_success else '❌'}")
                 print(f"   Trading signals: {'✅' if trading_signals_success else '❌'}")
+                print(f"   Hourly trading signals: {'✅' if hourly_trading_signals_success else '❌'}")
             
             return overall_success
             

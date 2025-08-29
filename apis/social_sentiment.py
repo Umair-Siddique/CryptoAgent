@@ -101,7 +101,7 @@ def filter_posts(posts_data):
             
             filtered_post = {
                 'user_id': USER_ID,
-                'token': posts_data.get('config', {}).get('topic', ''),  # Get token from config
+                'token_name': posts_data.get('config', {}).get('topic', ''),  # Use token_name instead of token
                 'post_title': post.get('post_title', ''),
                 'post_link': post.get('post_link', ''),
                 'post_sentiment': sentiment,

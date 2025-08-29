@@ -2,7 +2,7 @@
 """
 Semantic Search Retriever
 This module retrieves the most investable coin based on AI reports and social posts,
-then fetches comprehensive token data from all tables for today's date.
+then fetches comprehensive token data from all tables for the latest date.
 """
 
 import asyncio
@@ -92,6 +92,26 @@ class TokenRetriever:
             print(f"❌ Error calculating cosine similarity: {e}")
             return 0.0
     
+    async def get_latest_ai_report_date(self) -> Optional[datetime]:
+        """Get the latest created_at date from ai_reports table"""
+        try:
+            print("🔍 Finding latest AI report date...")
+            
+            # Get the most recent created_at from ai_reports
+            response = self.supabase.table('ai_reports').select('created_at').order('created_at', desc=True).limit(1).execute()
+            
+            if not response.data:
+                print("ℹ️ No AI reports found")
+                return None
+            
+            latest_date = datetime.fromisoformat(response.data[0]['created_at'].replace('Z', '+00:00'))
+            print(f"✅ Latest AI report date: {latest_date}")
+            return latest_date
+            
+        except Exception as e:
+            print(f"❌ Error getting latest AI report date: {e}")
+            return None
+    
     async def semantic_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Perform semantic search to find most relevant content"""
         try:
@@ -137,7 +157,7 @@ class TokenRetriever:
             for i, result in enumerate(final_results):
                 similarity = result.get('similarity', 0)
                 content_type = result.get('content_type', 'unknown')
-                token = result.get('token_symbol', 'unknown')
+                token = result.get('token_name', 'unknown')
                 print(f"  {i+1}. {content_type} ({token}) - Similarity: {similarity:.3f}")
             
             return final_results
@@ -184,11 +204,11 @@ class TokenRetriever:
             return []
 
     def get_token_from_content(self, content: Dict[str, Any]) -> Optional[str]:
-        """Extract token symbol from content"""
+        """Extract token name from content"""
         if content.get('content_type') == 'social_post':
-            return content.get('token_symbol')
+            return content.get('token_name')
         elif content.get('content_type') == 'ai_report':
-            return content.get('token_symbol')
+            return content.get('token_name')
         return None
     
     async def get_top_investable_token(self) -> Optional[str]:
@@ -223,7 +243,7 @@ class TokenRetriever:
             token_scores = {}
             
             for result in all_results:
-                token = result.get('token_symbol')
+                token = result.get('token_name')
                 if token:
                     if token not in token_counts:
                         token_counts[token] = 0
@@ -265,7 +285,7 @@ class TokenRetriever:
             print("🔄 Using fallback token selection...")
             
             # Get all available tokens from embeddings
-            response = self.supabase.table('embeddings').select('token_symbol').execute()
+            response = self.supabase.table('embeddings').select('token_name').execute()
             
             if not response.data:
                 print("ℹ️ No embeddings found")
@@ -274,7 +294,7 @@ class TokenRetriever:
             # Count token occurrences
             token_counts = {}
             for item in response.data:
-                token = item.get('token_symbol')
+                token = item.get('token_name')
                 if token:
                     token_counts[token] = token_counts.get(token, 0) + 1
             
@@ -292,100 +312,125 @@ class TokenRetriever:
             print(f"❌ Fallback token selection failed: {e}")
             return None
     
-    async def get_comprehensive_token_data(self, token_symbol: str) -> Dict[str, Any]:
-        """Get comprehensive token data from all tables for today"""
+    async def get_comprehensive_token_data(self, token_name: str) -> Dict[str, Any]:
+        """Get comprehensive token data from all tables for the latest date"""
         try:
-            print(f"📊 Fetching comprehensive data for {token_symbol}...")
+            print(f"📊 Fetching comprehensive data for {token_name}...")
+            
+            # First, get the latest AI report date to filter all data
+            latest_date = await self.get_latest_ai_report_date()
+            if not latest_date:
+                print("⚠️ Could not determine latest date, using today's date")
+                latest_date = datetime.now(timezone.utc)
+            
+            # Convert to date for comparison
+            latest_date_only = latest_date.date()
+            print(f"📅 Filtering data for latest date: {latest_date_only}")
             
             comprehensive_data = {
-                'token_symbol': token_symbol,
-                'date': self.today_utc.isoformat(),
+                'token_name': token_name,
+                'date': latest_date_only.isoformat(),
                 'social_posts': [],
                 'ai_reports': [],
                 'trading_signals': [],
                 'fundamental_grade': [],
                 'hourly_ohlcv': [],
-                'daily_ohlcv': []
+                'daily_ohlcv': [],
+                'hourly_trading_signals': []
             }
             
-            # 1. Get social posts for today
-            print(f"📱 Fetching social posts for {token_symbol}...")
-            posts_response = self.supabase.table('posts').select('*').eq('token', token_symbol).execute()
+            # 1. Get social posts for the latest date
+            print(f"📱 Fetching social posts for {token_name}...")
+            posts_response = self.supabase.table('posts').select('*').eq('token_name', token_name).execute()
             if posts_response.data:
                 for post in posts_response.data:
                     if post.get('ingested_at'):
                         try:
                             post_date = datetime.fromisoformat(post['ingested_at'].replace('Z', '+00:00')).date()
-                            if post_date == self.today_utc:
+                            if post_date == latest_date_only:
                                 comprehensive_data['social_posts'].append(post)
                         except:
                             continue
-            print(f"✅ Found {len(comprehensive_data['social_posts'])} social posts for today")
+            print(f"✅ Found {len(comprehensive_data['social_posts'])} social posts for latest date")
             
-            # 2. Get AI reports for today
-            print(f"🤖 Fetching AI reports for {token_symbol}...")
-            reports_response = self.supabase.table('ai_reports').select('*').eq('token_symbol', token_symbol).execute()
+            # 2. Get AI reports for the latest date
+            print(f"🤖 Fetching AI reports for {token_name}...")
+            reports_response = self.supabase.table('ai_reports').select('*').eq('token_name', token_name).execute()
             if reports_response.data:
                 for report in reports_response.data:
                     if report.get('created_at'):
                         try:
                             report_date = datetime.fromisoformat(report['created_at'].replace('Z', '+00:00')).date()
-                            if report_date == self.today_utc:
+                            if report_date == latest_date_only:
                                 comprehensive_data['ai_reports'].append(report)
                         except:
                             continue
-            print(f"✅ Found {len(comprehensive_data['ai_reports'])} AI reports for today")
+            print(f"✅ Found {len(comprehensive_data['ai_reports'])} AI reports for latest date")
             
-            # 3. Get trading signals for today
-            print(f"📈 Fetching trading signals for {token_symbol}...")
-            signals_response = self.supabase.table('trading_signals').select('*').eq('token_symbol', token_symbol).execute()
+            # 3. Get trading signals for the latest date
+            print(f"📈 Fetching trading signals for {token_name}...")
+            signals_response = self.supabase.table('trading_signals').select('*').eq('token_name', token_name).execute()
             if signals_response.data:
                 for signal in signals_response.data:
                     if signal.get('created_at'):
                         try:
                             signal_date = datetime.fromisoformat(signal['created_at'].replace('Z', '+00:00')).date()
-                            if signal_date == self.today_utc:
+                            if signal_date == latest_date_only:
                                 comprehensive_data['trading_signals'].append(signal)
                         except:
                             continue
-            print(f"✅ Found {len(comprehensive_data['trading_signals'])} trading signals for today")
+            print(f"✅ Found {len(comprehensive_data['trading_signals'])} trading signals for latest date")
             
             # 4. Get fundamental grade (latest data, not date-filtered)
-            print(f"📊 Fetching fundamental grade for {token_symbol}...")
-            fundamental_response = self.supabase.table('fundamental_grade').select('*').eq('token_symbol', token_symbol).execute()
+            print(f"📊 Fetching fundamental grade for {token_name}...")
+            fundamental_response = self.supabase.table('fundamental_grade').select('*').eq('token_name', token_name).execute()
             if fundamental_response.data:
                 comprehensive_data['fundamental_grade'] = fundamental_response.data
             print(f"✅ Found {len(comprehensive_data['fundamental_grade'])} fundamental grade records")
             
-            # 5. Get daily OHLCV data for today
-            print(f"💰 Fetching daily OHLCV for {token_symbol}...")
-            daily_ohlcv_response = self.supabase.table('daily_ohlcv').select('*').eq('token_symbol', token_symbol).execute()
+            # 5. Get daily OHLCV data for the latest date
+            print(f"💰 Fetching daily OHLCV for {token_name}...")
+            daily_ohlcv_response = self.supabase.table('daily_ohlcv').select('*').eq('token_name', token_name).execute()
             if daily_ohlcv_response.data:
                 for ohlcv in daily_ohlcv_response.data:
                     if ohlcv.get('date_time'):
                         try:
                             ohlcv_date = datetime.fromisoformat(ohlcv['date_time'].replace('Z', '+00:00')).date()
-                            if ohlcv_date == self.today_utc:
+                            if ohlcv_date == latest_date_only:
                                 comprehensive_data['daily_ohlcv'].append(ohlcv)
                         except:
                             continue
-            print(f"✅ Found {len(comprehensive_data['daily_ohlcv'])} daily OHLCV records for today")
+            print(f"✅ Found {len(comprehensive_data['daily_ohlcv'])} daily OHLCV records for latest date")
             
-            # 6. Get hourly OHLCV data for today
-            print(f"⏰ Fetching hourly OHLCV for {token_symbol}...")
-            hourly_ohlcv_response = self.supabase.table('hourly_ohlcv').select('*').eq('token_symbol', token_symbol).execute()
+            # 6. Get hourly OHLCV data for the latest date
+            print(f"⏰ Fetching hourly OHLCV for {token_name}...")
+            hourly_ohlcv_response = self.supabase.table('hourly_ohlcv').select('*').eq('token_name', token_name).execute()
             if hourly_ohlcv_response.data:
                 for ohlcv in hourly_ohlcv_response.data:
                     if ohlcv.get('date_time'):
                         try:
                             ohlcv_date = datetime.fromisoformat(ohlcv['date_time'].replace('Z', '+00:00')).date()
-                            if ohlcv_date == self.today_utc:
+                            if ohlcv_date == latest_date_only:
                                 comprehensive_data['hourly_ohlcv'].append(ohlcv)
                         except:
                             continue
-            print(f"✅ Found {len(comprehensive_data['hourly_ohlcv'])} hourly OHLCV records for today")
+            print(f"✅ Found {len(comprehensive_data['hourly_ohlcv'])} hourly OHLCV records for latest date")
             
-            print(f"✅ Retrieved comprehensive data for {token_symbol}")
+            # 7. Get hourly trading signals for the latest date
+            print(f"📊 Fetching hourly trading signals for {token_name}...")
+            hourly_signals_response = self.supabase.table('hourly_trading_signals').select('*').eq('token_name', token_name).execute()
+            if hourly_signals_response.data:
+                for signal in hourly_signals_response.data:
+                    if signal.get('timestamp'):
+                        try:
+                            signal_date = datetime.fromisoformat(signal['timestamp'].replace('Z', '+00:00')).date()
+                            if signal_date == latest_date_only:
+                                comprehensive_data['hourly_trading_signals'].append(signal)
+                        except:
+                            continue
+            print(f"✅ Found {len(comprehensive_data['hourly_trading_signals'])} hourly trading signals for latest date")
+            
+            print(f"✅ Retrieved comprehensive data for {token_name}")
             return comprehensive_data
             
         except Exception as e:
@@ -399,7 +444,7 @@ class TokenRetriever:
             return
         
         print(f"\n{'='*100}")
-        print(f"🏆 COMPREHENSIVE ANALYSIS FOR {data['token_symbol'].upper()}")
+        print(f"🏆 COMPREHENSIVE ANALYSIS FOR {data['token_name'].upper()}")
         print(f"📅 Date: {data['date']}")
         print(f"{'='*100}")
         
@@ -424,7 +469,7 @@ class TokenRetriever:
         else:
             print(f"\n📱 SOCIAL SENTIMENT ANALYSIS")
             print("=" * 60)
-            print("  ⚠️ No social posts found for today")
+            print("  ⚠️ No social posts found for latest date")
         
         # 2. AI ANALYSIS REPORTS
         if data['ai_reports']:
@@ -442,7 +487,7 @@ class TokenRetriever:
         else:
             print(f"\n🤖 AI ANALYSIS REPORTS")
             print("=" * 60)
-            print("  ⚠️ No AI reports found for today")
+            print("  ⚠️ No AI reports found for latest date")
         
         # 3. TRADING SIGNALS
         if data['trading_signals']:
@@ -461,9 +506,24 @@ class TokenRetriever:
         else:
             print(f"\n📈 TRADING SIGNALS")
             print("=" * 60)
-            print("  ⚠️ No trading signals found for today")
+            print("  ⚠️ No trading signals found for latest date")
         
-        # 4. FUNDAMENTAL ANALYSIS
+        # 4. HOURLY TRADING SIGNALS
+        if data['hourly_trading_signals']:
+            print(f"\n⏰ HOURLY TRADING SIGNALS ({len(data['hourly_trading_signals'])} signals)")
+            print("=" * 60)
+            # Show last 5 hourly signals
+            for signal in data['hourly_trading_signals'][-5:]:
+                print(f"🕐 {signal.get('timestamp', 'N/A')}")
+                print(f"  • Close Price: ${signal.get('close_price', 'N/A')}")
+                print(f"  • Signal: {signal.get('signal', 'N/A')}")
+                print(f"  • Position: {signal.get('position', 'N/A')}")
+        else:
+            print(f"\n⏰ HOURLY TRADING SIGNALS")
+            print("=" * 60)
+            print("  ⚠️ No hourly trading signals found for latest date")
+        
+        # 5. FUNDAMENTAL ANALYSIS
         if data['fundamental_grade']:
             print(f"\n📊 FUNDAMENTAL ANALYSIS")
             print("=" * 60)
@@ -480,7 +540,7 @@ class TokenRetriever:
             print("=" * 60)
             print("  ⚠️ No fundamental grade data found")
         
-        # 5. PRICE DATA - DAILY OHLCV
+        # 6. PRICE DATA - DAILY OHLCV
         if data['daily_ohlcv']:
             print(f"\n💰 DAILY PRICE DATA")
             print("=" * 60)
@@ -494,9 +554,9 @@ class TokenRetriever:
         else:
             print(f"\n💰 DAILY PRICE DATA")
             print("=" * 60)
-            print("  ⚠️ No daily OHLCV data found for today")
+            print("  ⚠️ No daily OHLCV data found for latest date")
         
-        # 6. PRICE DATA - HOURLY OHLCV
+        # 7. PRICE DATA - HOURLY OHLCV
         if data['hourly_ohlcv']:
             print(f"\n⏰ HOURLY PRICE DATA ({len(data['hourly_ohlcv'])} records)")
             print("=" * 60)
@@ -511,9 +571,9 @@ class TokenRetriever:
         else:
             print(f"\n⏰ HOURLY PRICE DATA")
             print("=" * 60)
-            print("  ⚠️ No hourly OHLCV data found for today")
+            print("  ⚠️ No hourly OHLCV data found for latest date")
         
-        # 7. INVESTMENT RECOMMENDATION
+        # 8. INVESTMENT RECOMMENDATION
         print(f"\n{'='*100}")
         print("🎯 INVESTMENT RECOMMENDATION")
         print("=" * 60)
@@ -522,6 +582,7 @@ class TokenRetriever:
         has_social_data = len(data['social_posts']) > 0
         has_ai_data = len(data['ai_reports']) > 0
         has_trading_data = len(data['trading_signals']) > 0
+        has_hourly_trading_data = len(data['hourly_trading_signals']) > 0
         has_fundamental_data = len(data['fundamental_grade']) > 0
         has_price_data = len(data['daily_ohlcv']) > 0 or len(data['hourly_ohlcv']) > 0
         
@@ -529,6 +590,7 @@ class TokenRetriever:
         print(f"  • Social Sentiment: {'✅' if has_social_data else '❌'}")
         print(f"  • AI Analysis: {'✅' if has_ai_data else '❌'}")
         print(f"  • Trading Signals: {'✅' if has_trading_data else '❌'}")
+        print(f"  • Hourly Trading Signals: {'✅' if has_hourly_trading_data else '❌'}")
         print(f"  • Fundamental Grade: {'✅' if has_fundamental_data else '❌'}")
         print(f"  • Price Data: {'✅' if has_price_data else '❌'}")
         
@@ -551,30 +613,30 @@ class TokenRetriever:
         print(f"\n📊 RECOMMENDATION:")
         if has_social_data and has_ai_data and has_fundamental_data:
             if avg_sentiment > 2.5:
-                print(f"  💚 STRONG BUY: {data['token_symbol'].upper()} shows excellent potential")
+                print(f"  💚 STRONG BUY: {data['token_name'].upper()} shows excellent potential")
                 print(f"     High social sentiment + AI analysis + fundamental data available")
             elif avg_sentiment > 1.5:
-                print(f"  🟡 MODERATE BUY: {data['token_symbol'].upper()} shows good potential")
+                print(f"  🟡 MODERATE BUY: {data['token_name'].upper()} shows good potential")
                 print(f"     Moderate social sentiment with comprehensive data available")
             else:
-                print(f"  🔴 CAUTION: {data['token_symbol'].upper()} shows weak sentiment")
+                print(f"  🔴 CAUTION: {data['token_name'].upper()} shows weak sentiment")
                 print(f"     Low social sentiment despite available data")
         elif has_social_data or has_ai_data:
-            print(f"  🟡 CONSIDER: {data['token_symbol'].upper()} has partial data")
+            print(f"  🟡 CONSIDER: {data['token_name'].upper()} has partial data")
             print(f"     Some analysis available but incomplete dataset")
         else:
-            print(f"  ⚠️ INSUFFICIENT DATA: {data['token_symbol'].upper()}")
+            print(f"  ⚠️ INSUFFICIENT DATA: {data['token_name'].upper()}")
             print(f"     Limited data available for analysis")
         
         print(f"\n{'='*100}")
-    
+
     async def generate_llm_analysis(self, comprehensive_data: Dict[str, Any]) -> Dict[str, Any]:
         """Generate LLM analysis with strict output format"""
         try:
             print("🤖 Generating LLM analysis with strict format...")
             
             # Prepare the data for LLM processing
-            token_symbol = comprehensive_data.get('token_symbol', 'UNKNOWN')
+            token_name = comprehensive_data.get('token_name', 'UNKNOWN')
             
             # Extract key information from the data
             social_summary = ""
@@ -601,35 +663,43 @@ class TokenRetriever:
                 latest_hourly = comprehensive_data['hourly_ohlcv'][-1]
                 price_summary = f"Current price: ${latest_hourly.get('close_price', 'N/A')}"
             
+            # Add hourly trading signals summary
+            hourly_signals_summary = ""
+            if comprehensive_data.get('hourly_trading_signals'):
+                latest_hourly_signal = comprehensive_data['hourly_trading_signals'][-1]
+                hourly_signals_summary = f"Latest hourly signal: {latest_hourly_signal.get('signal', 'N/A')}, Position: {latest_hourly_signal.get('position', 'N/A')}, Price: ${latest_hourly_signal.get('close_price', 'N/A')}"
+            
             # Create the prompt for LLM
             prompt = f"""
-You are a cryptocurrency investment analyst. Based on the following data for {token_symbol}, generate a trading recommendation in the EXACT JSON format specified below.
+You are a cryptocurrency investment analyst. Based on the following data for {token_name}, generate a trading recommendation in the EXACT JSON format specified below.
 
 DATA SUMMARY:
 - {social_summary}
 - {ai_summary}
 - {fundamental_summary}
 - {price_summary}
+- {hourly_signals_summary}
 
 AVAILABLE DATA:
 1. Social Posts: {len(comprehensive_data.get('social_posts', []))} posts
 2. AI Reports: {len(comprehensive_data.get('ai_reports', []))} reports
 3. Trading Signals: {len(comprehensive_data.get('trading_signals', []))} signals
-4. Fundamental Grade: {len(comprehensive_data.get('fundamental_grade', []))} records
-5. Daily OHLCV: {len(comprehensive_data.get('daily_ohlcv', []))} records
-6. Hourly OHLCV: {len(comprehensive_data.get('hourly_ohlcv', []))} records
+4. Hourly Trading Signals: {len(comprehensive_data.get('hourly_trading_signals', []))} signals
+5. Fundamental Grade: {len(comprehensive_data.get('fundamental_grade', []))} records
+6. Daily OHLCV: {len(comprehensive_data.get('daily_ohlcv', []))} records
+7. Hourly OHLCV: {len(comprehensive_data.get('hourly_ohlcv', []))} records
 
 REQUIRED OUTPUT FORMAT (JSON only, no other text):
 {{
   "new_positions": [
     {{
-      "symbol": "{token_symbol}",
+      "symbol": "{token_name}",
       "entry": [current_price_or_recommended_entry],
       "size_usd": [position_size_in_usd],
       "stop_loss": [stop_loss_price],
       "target_1": [first_target_price],
       "target_2": [second_target_price],
-      "rationale": "[Detailed rationale based on the data provided]"
+      "rationale": "[Detailed rationale based on the data provided, including hourly trading signals]"
     }}
   ]
 }}
@@ -637,11 +707,12 @@ REQUIRED OUTPUT FORMAT (JSON only, no other text):
 IMPORTANT:
 - Use ONLY the exact JSON format above
 - Do not include any explanatory text before or after the JSON
-- Base your analysis on the available data
+- Base your analysis on the available data, especially hourly trading signals
 - If insufficient data, use conservative estimates
 - The rationale should reference specific data points from the provided information
 - All prices should be realistic based on current market conditions
 - Position size should be reasonable (typically 10-50 USD for testing)
+- Consider hourly trading signals for short-term entry/exit timing
 """
 
             # Call OpenAI API
@@ -679,27 +750,27 @@ IMPORTANT:
                 except json.JSONDecodeError as e:
                     print(f"❌ Failed to parse LLM JSON response: {e}")
                     print(f"Raw response: {llm_response}")
-                    return self.generate_fallback_response(token_symbol)
+                    return self.generate_fallback_response(token_name)
             else:
                 print(f"❌ No JSON found in LLM response: {llm_response}")
-                return self.generate_fallback_response(token_symbol)
+                return self.generate_fallback_response(token_name)
                 
         except Exception as e:
             print(f"❌ Error generating LLM analysis: {e}")
-            return self.generate_fallback_response(comprehensive_data.get('token_symbol', 'UNKNOWN'))
+            return self.generate_fallback_response(comprehensive_data.get('token_name', 'UNKNOWN'))
     
-    def generate_fallback_response(self, token_symbol: str) -> Dict[str, Any]:
+    def generate_fallback_response(self, token_name: str) -> Dict[str, Any]:
         """Generate fallback response when LLM fails"""
         return {
             "new_positions": [
                 {
-                    "symbol": token_symbol,
+                    "symbol": token_name,
                     "entry": 1.00,
                     "size_usd": 20,
                     "stop_loss": 0.80,
                     "target_1": 1.20,
                     "target_2": 1.50,
-                    "rationale": f"Fallback recommendation for {token_symbol} due to insufficient data or LLM processing error."
+                    "rationale": f"Fallback recommendation for {token_name} due to insufficient data or LLM processing error."
                 }
             ]
         }

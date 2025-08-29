@@ -29,20 +29,20 @@ async def main():
         print(" Checking available tokens in your data...")
         
         # Get tokens from posts table
-        posts_response = pipeline.supabase.table('posts').select('token').execute()
+        posts_response = pipeline.supabase.table('posts').select('token_name').execute()
         post_tokens = set()
         if posts_response.data:
             for post in posts_response.data:
-                if post.get('token'):
-                    post_tokens.add(post['token'])
+                if post.get('token_name'):
+                    post_tokens.add(post['token_name'])
         
         # Get tokens from ai_reports table
-        reports_response = pipeline.supabase.table('ai_reports').select('token_symbol').execute()
+        reports_response = pipeline.supabase.table('ai_reports').select('token_name').execute()
         report_tokens = set()
         if reports_response.data:
             for report in reports_response.data:
-                if report.get('token_symbol'):
-                    report_tokens.add(report['token_symbol'])
+                if report.get('token_name'):
+                    report_tokens.add(report['token_name'])
         
         # Combine all tokens
         all_tokens = list(post_tokens.union(report_tokens))
@@ -55,12 +55,12 @@ async def main():
         print(f"✅ Found tokens: {', '.join(all_tokens)}")
         
         # Use all available tokens
-        token_symbols = all_tokens
+        token_names = all_tokens
         
-        print(f" Processing TODAY'S embeddings for tokens: {', '.join(token_symbols)}")
+        print(f" Processing TODAY'S embeddings for tokens: {', '.join(token_names)}")
         
         # Run the pipeline
-        success = await pipeline.run_embedding_pipeline(token_symbols)
+        success = await pipeline.run_embedding_pipeline(token_names)
         
         if success:
             print("\n✅ Embedding pipeline completed successfully!")
