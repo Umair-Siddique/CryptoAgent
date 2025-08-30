@@ -1,15 +1,4 @@
-#!/usr/bin/env python3
-"""
-Simplified Crypto Data Pipeline
-This script processes 3 dummy tokens (BTC, ETH, ADA):
-1. Stores token metadata in Supabase
-2. Fetches social posts using LunarCrush API (using token name)
-3. Fetches hourly and daily OHLCV data in parallel (using token ID)
-4. Fetches trading signals data (using token ID)
-5. Fetches AI reports data (using token ID)
-6. Fetches fundamental grade data (using token ID)
-7. Stores all data in Supabase
-"""
+
 
 import asyncio
 import os
@@ -26,6 +15,7 @@ from apis.ai_report import AIReportAPI
 from apis.fundamental_grade import FundamentalGradeAPI
 from apis.hourly_trading_signals import HourlyTradingSignalsAPI
 from apis.hourly_trading_signals_storage import HourlyTradingSignalsStorage
+from apis.token_data import TokenDataAPI
 
 # Supabase client
 try:
@@ -56,6 +46,7 @@ class CryptoPipeline:
         self.hourly_trading_signals_storage = HourlyTradingSignalsStorage()
         self.ai_report_api = AIReportAPI()
         self.fundamental_grade_api = FundamentalGradeAPI()
+        self.token_data_api = TokenDataAPI()
     
     def get_dummy_tokens(self) -> List[Dict]:
         """Get dummy data for BTC, ETH, ADA"""
@@ -110,12 +101,22 @@ class CryptoPipeline:
     def store_token_data(self, token: Dict) -> bool:
         """Store token metadata in Supabase"""
         try:
-            # For now, just print the token data
-            print(f"📊 Token: {token.get('TOKEN_SYMBOL')} - {token.get('TOKEN_NAME')}")
-            print(f"   Price: ${token.get('CURRENT_PRICE'):,.2f}")
-            print(f"   Market Cap: ${token.get('MARKET_CAP'):,.0f}")
-            print(f"   24h Change: {token.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY')}%")
-            return True
+            # Convert the dummy token data to the format expected by TokenDataAPI
+            token_data = [token]
+            
+            # Store using the TokenDataAPI
+            success = self.token_data_api.store_token_data(token_data)
+            
+            if success:
+                print(f"📊 Token: {token.get('TOKEN_SYMBOL')} - {token.get('TOKEN_NAME')}")
+                print(f"   Price: ${token.get('CURRENT_PRICE'):,.2f}")
+                print(f"   Market Cap: ${token.get('MARKET_CAP'):,.0f}")
+                print(f"   24h Change: {token.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY')}%")
+                print(f"   ✅ Successfully stored in Supabase")
+            else:
+                print(f"❌ Failed to store token data for {token.get('TOKEN_SYMBOL')}")
+            
+            return success
         except Exception as e:
             print(f"❌ Error storing token data: {e}")
             return False

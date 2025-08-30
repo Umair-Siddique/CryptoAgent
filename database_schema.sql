@@ -178,4 +178,33 @@ CREATE INDEX IF NOT EXISTS idx_hourly_trading_signals_created_at ON hourly_tradi
 -- Update the posts index to use token_name
 create index if not exists posts_token_name_ingested_at_idx on public.posts (token_name, ingested_at desc);
 
+-- Create tokens table for token data
+CREATE TABLE IF NOT EXISTS tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    token_id VARCHAR(50),
+    token_name VARCHAR(100),
+    token_symbol VARCHAR(20) NOT NULL,
+    current_price DECIMAL(20, 8),
+    market_cap DECIMAL(30, 8),
+    total_volume DECIMAL(30, 8),
+    circulating_supply DECIMAL(30, 8),
+    total_supply DECIMAL(30, 8),
+    max_supply DECIMAL(30, 8),
+    fully_diluted_valuation DECIMAL(30, 8),
+    high_24h DECIMAL(20, 8),
+    low_24h DECIMAL(20, 8),
+    price_change_percentage_24h DECIMAL(10, 8),
+    tm_link VARCHAR(255),
+    contract_address JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(token_symbol, token_id)
+);
+
+-- Create index for better performance
+CREATE INDEX IF NOT EXISTS idx_tokens_token_symbol ON tokens(token_symbol);
+CREATE INDEX IF NOT EXISTS idx_tokens_token_id ON tokens(token_id);
+CREATE INDEX IF NOT EXISTS idx_tokens_created_at ON tokens(created_at);
+
 
