@@ -4,3 +4,6 @@ httpx
 eth-account
 x402
 streamlit
+openai
+pandas
+aiohttp
