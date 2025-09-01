@@ -2,6 +2,13 @@ import pandas as pd
 from datetime import datetime
 import requests
 
+def get_current_month_date():
+    """
+    Get current month and date in M/D format (e.g., 9/1 for September 1st)
+    """
+    now = datetime.now()
+    return f"{now.month}/{now.day}"
+
 def fetch_tokens_from_public_sheet():
     """
     Fetch tokens from public Google Sheet using pandas.
@@ -20,13 +27,13 @@ def fetch_tokens_from_public_sheet():
         print(f"Successfully loaded data with {len(df)} rows and {len(df.columns)} columns")
         print(f"Columns: {list(df.columns)}")
         
-        # Directly target the 8/26 column
-        target_date = "8/26"
+        # Dynamic target date based on current month and date
+        target_date = get_current_month_date()
         
         if target_date in df.columns:
             print(f"\nFound target column: {target_date}")
             
-            # Get all tokens from the 8/26 column (skip NaN values)
+            # Get all tokens from the target date column (skip NaN values)
             tokens = df[target_date].dropna().tolist()
             tokens = [str(token).strip() for token in tokens if str(token).strip()]
             
@@ -45,23 +52,25 @@ def fetch_tokens_from_public_sheet():
 
 def main():
     """
-    Main function to fetch tokens for 8/26.
+    Main function to fetch tokens for current date.
     """
+    current_date = get_current_month_date()
+    
     print("="*60)
-    print("FETCHING TOKENS FROM 8/26 COLUMN")
+    print(f"FETCHING TOKENS FROM {current_date} COLUMN")
     print("="*60)
     
-    # Fetch tokens for 8/26
+    # Fetch tokens for current date
     tokens = fetch_tokens_from_public_sheet()
     
     if tokens:
         print("\n" + "="*50)
-        print(f"ALL TOKENS FROM 8/26 COLUMN ({len(tokens)} total):")
+        print(f"ALL TOKENS FROM {current_date} COLUMN ({len(tokens)} total):")
         print("="*50)
         for i, token in enumerate(tokens, 1):
             print(f"{i:2d}. {token}")
     else:
-        print("\nNo tokens found in 8/26 column.")
+        print(f"\nNo tokens found in {current_date} column.")
     
     print("\n" + "="*60)
     print("Script completed!")
