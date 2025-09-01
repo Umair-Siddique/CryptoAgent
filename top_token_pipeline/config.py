@@ -4,7 +4,7 @@ Configuration file for the Top Token Pipeline
 
 # Google Sheets Configuration
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1BBu8h0joeIyPJuyIqK3anFAoomT2oSQkAfU92qVKYzo/edit?usp=sharing"
-TARGET_DATE_COLUMN = "8/26"
+TARGET_DATE_COLUMN = "target_tokens"
 
 # API Configuration
 TOKEN_METRICS_BASE_URL = "https://api.tokenmetrics.com"

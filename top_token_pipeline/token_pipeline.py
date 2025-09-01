@@ -73,8 +73,8 @@ class TopTokenPipeline:
             df = pd.read_csv(csv_url)
             print(f"✅ Successfully loaded data with {len(df)} rows and {len(df.columns)} columns")
             
-            # Target the 8/26 column specifically
-            target_date = "8/26"
+            # Target the target_tokens column specifically
+            target_date = "target_tokens"
             if target_date in df.columns:
                 tokens = df[target_date].dropna().tolist()
                 tokens = [str(token).strip() for token in tokens if str(token).strip()]
