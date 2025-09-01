@@ -29,7 +29,9 @@ def fetch_tokens_from_public_sheet():
         
         # Dynamic target date based on current month and date
         target_date = get_current_month_date()
+        print(f"Looking for column: '{target_date}'")
         
+        # Check if the target column exists
         if target_date in df.columns:
             print(f"\nFound target column: {target_date}")
             
@@ -42,9 +44,38 @@ def fetch_tokens_from_public_sheet():
             
             return tokens
         else:
-            print(f"Column {target_date} not found!")
+            print(f"Column '{target_date}' not found!")
             print("Available columns:", df.columns.tolist())
-            return []
+            
+            # Try to find the most recent date column
+            date_columns = [col for col in df.columns if '/' in str(col)]
+            if date_columns:
+                # Sort by month/day (convert to datetime for proper sorting)
+                def parse_date(col):
+                    try:
+                        if '/' in str(col):
+                            month, day = str(col).split('/')
+                            return int(month), int(day)
+                        return 0, 0
+                    except:
+                        return 0, 0
+                
+                sorted_columns = sorted(date_columns, key=parse_date, reverse=True)
+                latest_column = sorted_columns[0]
+                print(f"\nLatest available date column: {latest_column}")
+                
+                # Use the latest available column
+                tokens = df[latest_column].dropna().tolist()
+                tokens = [str(token).strip() for token in tokens if str(token).strip()]
+                
+                print(f"Using {latest_column} column instead")
+                print(f"Found {len(tokens)} tokens in {latest_column} column")
+                print(f"Tokens: {', '.join(tokens)}")
+                
+                return tokens
+            else:
+                print("No date columns found!")
+                return []
         
     except Exception as e:
         print(f"Error fetching data: {e}")
@@ -65,12 +96,12 @@ def main():
     
     if tokens:
         print("\n" + "="*50)
-        print(f"ALL TOKENS FROM {current_date} COLUMN ({len(tokens)} total):")
+        print(f"ALL TOKENS FOUND ({len(tokens)} total):")
         print("="*50)
         for i, token in enumerate(tokens, 1):
             print(f"{i:2d}. {token}")
     else:
-        print(f"\nNo tokens found in {current_date} column.")
+        print(f"\nNo tokens found.")
     
     print("\n" + "="*60)
     print("Script completed!")
