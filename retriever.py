@@ -336,7 +336,9 @@ class TokenRetriever:
                 'fundamental_grade': [],
                 'hourly_ohlcv': [],
                 'daily_ohlcv': [],
-                'hourly_trading_signals': []
+                'hourly_trading_signals': [],
+                'resistance_support': [],  # ADDED: Resistance support data
+                'token_metrics': []        # ADDED: Token metrics/price data
             }
             
             # 1. Get social posts for the latest date
@@ -430,6 +432,20 @@ class TokenRetriever:
                             continue
             print(f"✅ Found {len(comprehensive_data['hourly_trading_signals'])} hourly trading signals for latest date")
             
+            # 8. Get resistance support data (latest data, not date-filtered)
+            print(f"📊 Fetching resistance support data for {token_name}...")
+            resistance_support_response = self.supabase.table('resistance_support').select('*').eq('token_name', token_name).order('created_at', desc=True).limit(1).execute()
+            if resistance_support_response.data:
+                comprehensive_data['resistance_support'] = resistance_support_response.data
+            print(f"✅ Found {len(comprehensive_data['resistance_support'])} resistance support records")
+            
+            # 9. Get token metrics/price data (latest data, not date-filtered)
+            print(f"💰 Fetching token metrics for {token_name}...")
+            token_metrics_response = self.supabase.table('tokens').select('*').eq('token_name', token_name).order('created_at', desc=True).limit(1).execute()
+            if token_metrics_response.data:
+                comprehensive_data['token_metrics'] = token_metrics_response.data
+            print(f"✅ Found {len(comprehensive_data['token_metrics'])} token metrics records")
+            
             print(f"✅ Retrieved comprehensive data for {token_name}")
             return comprehensive_data
             
@@ -448,185 +464,70 @@ class TokenRetriever:
         print(f"📅 Date: {data['date']}")
         print(f"{'='*100}")
         
-        # 1. SOCIAL SENTIMENT ANALYSIS
-        if data['social_posts']:
-            print(f"\n📱 SOCIAL SENTIMENT ANALYSIS ({len(data['social_posts'])} posts)")
-            print("=" * 60)
-            total_sentiment = sum(post.get('post_sentiment', 0) for post in data['social_posts'])
-            avg_sentiment = total_sentiment / len(data['social_posts']) if data['social_posts'] else 0
-            total_followers = sum(post.get('creator_followers', 0) for post in data['social_posts'])
-            total_interactions = sum(post.get('interactions_total', 0) for post in data['social_posts'])
-            
-            print(f"📝 SUMMARY:")
-            print(f"  • Average Sentiment: {avg_sentiment:.3f}")
-            print(f"  • Total Followers: {total_followers:,}")
-            print(f"  • Total Interactions: {total_interactions:,}")
-            
-            print(f"\n📝 TOP POSTS:")
-            for i, post in enumerate(data['social_posts'][:5], 1):  # Show top 5
-                print(f"  {i}. {post.get('post_title', 'No title')[:100]}...")
-                print(f"     Sentiment: {post.get('post_sentiment', 'N/A')} | Followers: {post.get('creator_followers', 'N/A'):,} | Interactions: {post.get('interactions_total', 'N/A'):,}")
-        else:
-            print(f"\n📱 SOCIAL SENTIMENT ANALYSIS")
-            print("=" * 60)
-            print("  ⚠️ No social posts found for latest date")
+        # Social Posts
+        if data.get('social_posts'):
+            print(f"\n📱 SOCIAL SENTIMENT ({len(data['social_posts'])} posts)")
+            for post in data['social_posts'][:3]:  # Show first 3 posts
+                sentiment = post.get('post_sentiment', 'N/A')
+                sentiment_emoji = "🟢" if sentiment and sentiment > 0 else "🔴" if sentiment and sentiment < 0 else ""
+                print(f"   {sentiment_emoji} {post.get('post_title', 'N/A')[:80]}...")
+                print(f"      Sentiment: {sentiment} | Followers: {post.get('creator_followers', 'N/A')}")
         
-        # 2. AI ANALYSIS REPORTS
-        if data['ai_reports']:
-            print(f"\n🤖 AI ANALYSIS REPORTS ({len(data['ai_reports'])} reports)")
-            print("=" * 60)
-            for i, report in enumerate(data['ai_reports'], 1):
-                print(f"📋 Report {i}:")
-                print(f"  • Token ID: {report.get('token_id', 'N/A')}")
-                print(f"  • Token Name: {report.get('token_name', 'N/A')}")
-                print(f"  • Investment Analysis: {report.get('investment_analysis_pointer', 'N/A')[:150]}...")
-                if report.get('deep_dive'):
-                    print(f"  • Deep Dive: {report.get('deep_dive', 'N/A')[:150]}...")
-                if report.get('code_review'):
-                    print(f"  • Code Review: {report.get('code_review', 'N/A')[:150]}...")
-        else:
-            print(f"\n🤖 AI ANALYSIS REPORTS")
-            print("=" * 60)
-            print("  ⚠️ No AI reports found for latest date")
+        # AI Reports
+        if data.get('ai_reports'):
+            print(f"\n🤖 AI ANALYSIS ({len(data['ai_reports'])} reports)")
+            for report in data['ai_reports']:
+                print(f"   📊 Investment Analysis: {report.get('investment_analysis', 'N/A')[:100]}...")
+                print(f"    Deep Dive: {report.get('deep_dive', 'N/A')[:100]}...")
         
-        # 3. TRADING SIGNALS
-        if data['trading_signals']:
-            print(f"\n📈 TRADING SIGNALS ({len(data['trading_signals'])} signals)")
-            print("=" * 60)
-            for i, signal in enumerate(data['trading_signals'], 1):
-                print(f"📊 Signal {i}:")
-                print(f"  • Trading Signal: {signal.get('trading_signal', 'N/A')}")
-                print(f"  • Token Trend: {signal.get('token_trend', 'N/A')}")
-                print(f"  • Trading Returns: {signal.get('trading_signals_returns', 'N/A')}")
-                print(f"  • Holding Returns: {signal.get('holding_returns', 'N/A')}")
-                print(f"  • TM Trader Grade: {signal.get('tm_trader_grade', 'N/A')}")
-                print(f"  • TM Investor Grade: {signal.get('tm_investor_grade', 'N/A')}")
-                if signal.get('tm_link'):
-                    print(f"  • TM Link: {signal.get('tm_link', 'N/A')}")
-        else:
-            print(f"\n📈 TRADING SIGNALS")
-            print("=" * 60)
-            print("  ⚠️ No trading signals found for latest date")
+        # Trading Signals
+        if data.get('trading_signals'):
+            print(f"\n TRADING SIGNALS ({len(data['trading_signals'])} signals)")
+            for signal in data['trading_signals']:
+                signal_value = signal.get('trading_signal', 'N/A')
+                signal_emoji = "🟢" if signal_value == 1 else "🔴" if signal_value == -1 else ""
+                print(f"   {signal_emoji} Signal: {signal_value} | Trend: {signal.get('token_trend', 'N/A')}")
         
-        # 4. HOURLY TRADING SIGNALS
-        if data['hourly_trading_signals']:
+        # Hourly Trading Signals
+        if data.get('hourly_trading_signals'):
             print(f"\n⏰ HOURLY TRADING SIGNALS ({len(data['hourly_trading_signals'])} signals)")
-            print("=" * 60)
-            # Show last 5 hourly signals
-            for signal in data['hourly_trading_signals'][-5:]:
-                print(f"🕐 {signal.get('timestamp', 'N/A')}")
-                print(f"  • Close Price: ${signal.get('close_price', 'N/A')}")
-                print(f"  • Signal: {signal.get('signal', 'N/A')}")
-                print(f"  • Position: {signal.get('position', 'N/A')}")
-        else:
-            print(f"\n⏰ HOURLY TRADING SIGNALS")
-            print("=" * 60)
-            print("  ⚠️ No hourly trading signals found for latest date")
+            for signal in data['hourly_trading_signals'][:5]:  # Show last 5 hourly signals
+                signal_value = signal.get('signal', 'N/A')
+                signal_emoji = "🟢" if signal_value == 'BUY' else "🔴" if signal_value == 'SELL' else ""
+                print(f"   {signal_emoji} {signal.get('timestamp', 'N/A')}: {signal_value} | Price: ${signal.get('close_price', 'N/A')}")
         
-        # 5. FUNDAMENTAL ANALYSIS
-        if data['fundamental_grade']:
-            print(f"\n📊 FUNDAMENTAL ANALYSIS")
-            print("=" * 60)
+        # Fundamental Grade
+        if data.get('fundamental_grade'):
+            print(f"\n📊 FUNDAMENTAL ANALYSIS ({len(data['fundamental_grade'])} records)")
             for grade in data['fundamental_grade']:
-                print(f"🏆 Overall Grade: {grade.get('fundamental_grade', 'N/A')}")
-                print(f"📋 Grade Class: {grade.get('fundamental_grade_class', 'N/A')}")
-                print(f"🏢 Community Score: {grade.get('community_score', 'N/A')}")
-                print(f"🏢 Exchange Score: {grade.get('exchange_score', 'N/A')}")
-                print(f"💼 VC Score: {grade.get('vc_score', 'N/A')}")
-                print(f"🪙 Tokenomics Score: {grade.get('tokenomics_score', 'N/A')}")
-                print(f"🏢 DeFi Scanner Score: {grade.get('defi_scanner_score', 'N/A')}")
-        else:
-            print(f"\n📊 FUNDAMENTAL ANALYSIS")
-            print("=" * 60)
-            print("  ⚠️ No fundamental grade data found")
+                print(f"   🏆 Grade: {grade.get('fundamental_grade', 'N/A')}")
+                print(f"   🏘️ Community Score: {grade.get('community_score', 'N/A')}")
+                print(f"   💱 Exchange Score: {grade.get('exchange_score', 'N/A')}")
         
-        # 6. PRICE DATA - DAILY OHLCV
-        if data['daily_ohlcv']:
-            print(f"\n💰 DAILY PRICE DATA")
-            print("=" * 60)
-            for ohlcv in data['daily_ohlcv']:
-                print(f"📅 Date: {ohlcv.get('date_time', 'N/A')}")
-                print(f"  • Open: ${ohlcv.get('open_price', 'N/A')}")
-                print(f"  • High: ${ohlcv.get('high_price', 'N/A')}")
-                print(f"  • Low: ${ohlcv.get('low_price', 'N/A')}")
-                print(f"  • Close: ${ohlcv.get('close_price', 'N/A')}")
-                print(f"  • Volume: {ohlcv.get('volume', 'N/A'):,}")
-        else:
-            print(f"\n💰 DAILY PRICE DATA")
-            print("=" * 60)
-            print("  ⚠️ No daily OHLCV data found for latest date")
+        # OHLCV Data
+        if data.get('daily_ohlcv'):
+            print(f"\n💰 DAILY OHLCV ({len(data['daily_ohlcv'])} records)")
+            for ohlcv in data['daily_ohlcv'][:3]:  # Show last 3 days
+                print(f"   📅 {ohlcv.get('date_time', 'N/A')}: O:${ohlcv.get('open_price', 'N/A')} H:${ohlcv.get('high_price', 'N/A')} L:${ohlcv.get('low_price', 'N/A')} C:${ohlcv.get('close_price', 'N/A')}")
         
-        # 7. PRICE DATA - HOURLY OHLCV
-        if data['hourly_ohlcv']:
-            print(f"\n⏰ HOURLY PRICE DATA ({len(data['hourly_ohlcv'])} records)")
-            print("=" * 60)
-            # Show last 5 hourly records
-            for ohlcv in data['hourly_ohlcv'][-5:]:
-                print(f"🕐 {ohlcv.get('date_time', 'N/A')}")
-                print(f"  • Open: ${ohlcv.get('open_price', 'N/A')}")
-                print(f"  • High: ${ohlcv.get('high_price', 'N/A')}")
-                print(f"  • Low: ${ohlcv.get('low_price', 'N/A')}")
-                print(f"  • Close: ${ohlcv.get('close_price', 'N/A')}")
-                print(f"  • Volume: {ohlcv.get('volume', 'N/A'):,}")
-        else:
-            print(f"\n⏰ HOURLY PRICE DATA")
-            print("=" * 60)
-            print("  ⚠️ No hourly OHLCV data found for latest date")
+        # Resistance Support Data
+        if data.get('resistance_support'):
+            print(f"\n📊 RESISTANCE & SUPPORT ({len(data['resistance_support'])} records)")
+            for rs in data['resistance_support']:
+                levels = rs.get('historical_levels', [])
+                print(f"    Historical Levels: {len(levels)} levels")
+                if levels:
+                    # Show first few levels
+                    for level in levels[:3]:
+                        print(f"       Level: ${level.get('level', 'N/A')} | Type: {level.get('type', 'N/A')}")
         
-        # 8. INVESTMENT RECOMMENDATION
-        print(f"\n{'='*100}")
-        print("🎯 INVESTMENT RECOMMENDATION")
-        print("=" * 60)
-        
-        # Calculate overall metrics
-        has_social_data = len(data['social_posts']) > 0
-        has_ai_data = len(data['ai_reports']) > 0
-        has_trading_data = len(data['trading_signals']) > 0
-        has_hourly_trading_data = len(data['hourly_trading_signals']) > 0
-        has_fundamental_data = len(data['fundamental_grade']) > 0
-        has_price_data = len(data['daily_ohlcv']) > 0 or len(data['hourly_ohlcv']) > 0
-        
-        print(f"📊 DATA AVAILABILITY:")
-        print(f"  • Social Sentiment: {'✅' if has_social_data else '❌'}")
-        print(f"  • AI Analysis: {'✅' if has_ai_data else '❌'}")
-        print(f"  • Trading Signals: {'✅' if has_trading_data else '❌'}")
-        print(f"  • Hourly Trading Signals: {'✅' if has_hourly_trading_data else '❌'}")
-        print(f"  • Fundamental Grade: {'✅' if has_fundamental_data else '❌'}")
-        print(f"  • Price Data: {'✅' if has_price_data else '❌'}")
-        
-        if has_social_data:
-            avg_sentiment = sum(post.get('post_sentiment', 0) for post in data['social_posts']) / len(data['social_posts'])
-            if avg_sentiment > 2.5:
-                sentiment_rating = "POSITIVE"
-                sentiment_emoji = "💚"
-            elif avg_sentiment > 1.5:
-                sentiment_rating = "NEUTRAL"
-                sentiment_emoji = "🟡"
-            else:
-                sentiment_rating = "NEGATIVE"
-                sentiment_emoji = "🔴"
-            
-            print(f"\n📊 SENTIMENT ANALYSIS:")
-            print(f"  • Average Sentiment: {sentiment_rating} ({avg_sentiment:.3f}) {sentiment_emoji}")
-        
-        # Generate recommendation
-        print(f"\n📊 RECOMMENDATION:")
-        if has_social_data and has_ai_data and has_fundamental_data:
-            if avg_sentiment > 2.5:
-                print(f"  💚 STRONG BUY: {data['token_name'].upper()} shows excellent potential")
-                print(f"     High social sentiment + AI analysis + fundamental data available")
-            elif avg_sentiment > 1.5:
-                print(f"  🟡 MODERATE BUY: {data['token_name'].upper()} shows good potential")
-                print(f"     Moderate social sentiment with comprehensive data available")
-            else:
-                print(f"  🔴 CAUTION: {data['token_name'].upper()} shows weak sentiment")
-                print(f"     Low social sentiment despite available data")
-        elif has_social_data or has_ai_data:
-            print(f"  🟡 CONSIDER: {data['token_name'].upper()} has partial data")
-            print(f"     Some analysis available but incomplete dataset")
-        else:
-            print(f"  ⚠️ INSUFFICIENT DATA: {data['token_name'].upper()}")
-            print(f"     Limited data available for analysis")
+        # Token Metrics
+        if data.get('token_metrics'):
+            print(f"\n💰 TOKEN METRICS ({len(data['token_metrics'])} records)")
+            for metric in data['token_metrics']:
+                print(f"   💵 Current Price: ${metric.get('current_price', 'N/A')}")
+                print(f"   📊 Market Cap: ${metric.get('market_cap', 'N/A'):,.0f}" if metric.get('market_cap') else "    Market Cap: N/A")
+                print(f"   📈 24h Change: {metric.get('price_change_percentage_24h', 'N/A')}%")
         
         print(f"\n{'='*100}")
 

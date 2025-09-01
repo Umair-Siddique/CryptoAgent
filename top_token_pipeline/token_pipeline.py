@@ -286,6 +286,51 @@ class TopTokenPipeline:
         
         return top_10
 
+    async def get_top_10_tokens(self) -> List[TokenData]:
+        """
+        Get top 10 tokens from the pipeline and return them as a list
+        This method can be called by other scripts to get the top tokens
+        """
+        try:
+            print("🔄 Getting top 10 tokens from token pipeline...")
+            
+            # Step 1: Fetch tokens from Google Sheets
+            tokens = self.fetch_tokens_from_sheet()
+            if not tokens:
+                print("❌ No tokens found, returning empty list")
+                return []
+            
+            print(f"📊 Total tokens to process: {len(tokens)}")
+            
+            # Step 2: Get token IDs
+            token_data_list = await self.get_token_ids(tokens)
+            
+            # Step 3: Get TM grades
+            token_data_list = await self.get_tm_grades(token_data_list)
+            
+            # Step 4: Use LLM to select top 10 tokens
+            top_tokens = await self.get_llm_top_10_selection(token_data_list)
+            
+            # Display results in terminal
+            print("\n" + "=" * 70)
+            print(" TOP 10 TOKENS SELECTED BY LLM")
+            print("=" * 70)
+            
+            for i, token in enumerate(top_tokens, 1):
+                print(f"{i:2d}. {token.name} ({token.symbol})")
+                print(f"    Token ID: {token.token_id}")
+                print(f"    TM Grade: {token.tm_grade}")
+                print(f"    24h Change: {token.tm_grade_24h_change}")
+                print(f"    Signal: {token.tm_grade_signal}")
+                print(f"    Momentum: {token.momentum}")
+                print()
+            
+            return top_tokens
+            
+        except Exception as e:
+            print(f"❌ Error getting top 10 tokens: {e}")
+            return []
+
     async def run_pipeline(self, use_llm_selection: bool = True):
         """
         Run the complete pipeline with LLM-based token selection

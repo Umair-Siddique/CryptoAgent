@@ -138,6 +138,74 @@ class TokenDataAPI:
             print(f"❌ Failed to fetch token data. Response: {result}")
             return None
     
+    async def get_token_data_by_names(self, token_names: List[str]) -> Optional[List[Dict]]:
+        """
+        Get token data for specific token names - one API call per token
+        
+        Args:
+            token_names: List of token names to fetch data for
+        """
+        if not token_names:
+            print("No token names provided")
+            return None
+        
+        all_token_data = []
+        seen_tokens = set()  # Track tokens we've already processed
+        
+        for token_name in token_names:
+            try:
+                # Skip if we've already processed this token name
+                if token_name in seen_tokens:
+                    print(f"⚠️ Skipping duplicate token name: {token_name}")
+                    continue
+                
+                seen_tokens.add(token_name)
+                
+                # Make individual API call for each token name
+                endpoint = f"/v2/tokens?token_name={token_name}"
+                print(f"Fetching token data for: {token_name}")
+                print(f"Full endpoint: {API_BASE}{endpoint}")
+                
+                result = await self._make_paid_request(endpoint)
+                
+                if result and result.get('success') and 'data' in result and result['data']:
+                    print(f"✅ Successfully fetched token data for {token_name}")
+                    # Filter out any duplicate records from the API response
+                    for record in result['data']:
+                        token_symbol = record.get('TOKEN_SYMBOL', '').upper()
+                        if token_symbol and f"{token_symbol}_{record.get('TOKEN_ID')}" not in seen_tokens:
+                            all_token_data.append(record)
+                            seen_tokens.add(f"{token_symbol}_{record.get('TOKEN_ID')}")
+                else:
+                    print(f"❌ Failed to fetch token data for {token_name}. Response: {result}")
+                
+                # Add small delay between API calls to avoid rate limiting
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                print(f"❌ Error fetching data for {token_name}: {e}")
+                continue
+        
+        if all_token_data:
+            print(f"✅ Successfully fetched token data for {len(all_token_data)} total records")
+            return all_token_data
+        else:
+            print("❌ No token data received from any API calls")
+            return None
+    
+    def check_existing_tokens(self, token_symbols: List[str]) -> set:
+        """Check which tokens already exist in the database"""
+        try:
+            existing_tokens = set()
+            for symbol in token_symbols:
+                result = self.supabase.table('tokens').select('token_symbol').eq('token_symbol', symbol).eq('user_id', self.user_id).execute()
+                if result.data:
+                    existing_tokens.add(symbol)
+            return existing_tokens
+        except Exception as e:
+            print(f"Error checking existing tokens: {e}")
+            return set()
+    
     def store_token_data(self, token_data: List[Dict]) -> bool:
         """
         Store token data in Supabase
@@ -152,6 +220,13 @@ class TokenDataAPI:
         try:
             db_data = []
             seen_tokens = set()
+            
+            # Check which tokens already exist
+            token_symbols = [record.get('TOKEN_SYMBOL', '').upper() for record in token_data if record.get('TOKEN_SYMBOL')]
+            existing_tokens = self.check_existing_tokens(token_symbols)
+            
+            if existing_tokens:
+                print(f"⚠️ Tokens already exist in database: {', '.join(existing_tokens)}")
             
             for i, record in enumerate(token_data):
                 try:
@@ -170,7 +245,8 @@ class TokenDataAPI:
                     
                     seen_tokens.add(combination_key)
                     
-                    # Map fields to match the exact database schema
+                    # Map fields to match the EXACT database schema from database_schema.sql
+                    # Only include fields that exist in the schema
                     db_record = {
                         'user_id': self.user_id,
                         'token_id': str(token_id) if token_id else None,
@@ -185,8 +261,9 @@ class TokenDataAPI:
                         'fully_diluted_valuation': float(record.get('FULLY_DILUTED_VALUATION', 0)) if record.get('FULLY_DILUTED_VALUATION') else None,
                         'high_24h': float(record.get('HIGH_24H', 0)) if record.get('HIGH_24H') else None,
                         'low_24h': float(record.get('LOW_24H', 0)) if record.get('LOW_24H') else None,
-                        'price_change_percentage_24h': float(record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY', 0)) if record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY') else None,
-                        'created_at': datetime.now(timezone.utc).isoformat()
+                        'price_change_percentage_24h': float(record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY', 0)) if record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY') else None
+                        # Don't set tm_link, contract_address, created_at, or updated_at
+                        # Let the database use defaults or handle them automatically
                     }
                     
                     db_data.append(db_record)
@@ -201,14 +278,43 @@ class TokenDataAPI:
             
             print(f"Inserting {len(db_data)} unique token records...")
             
-            # Use simple insert instead of upsert to avoid constraint issues
-            result = self.supabase.table('tokens').insert(db_data).execute()
-            
-            if result.data:
-                print(f"✅ Successfully stored {len(result.data)} token records in Supabase")
-                return True
-            else:
-                print("❌ Failed to store token data in Supabase")
+            # Handle the unique constraint properly
+            # The constraint is on (user_id, token_symbol, created_at)
+            # We need to ensure we don't create conflicts
+            try:
+                # Process records one by one to handle the unique constraint properly
+                success_count = 0
+                for record in db_data:
+                    try:
+                        # Check if a record with the same user_id and token_symbol exists
+                        existing = self.supabase.table('tokens').select('id, created_at').eq('user_id', record['user_id']).eq('token_symbol', record['token_symbol']).execute()
+                        
+                        if existing.data:
+                            # Update the existing record instead of creating a duplicate
+                            update_result = self.supabase.table('tokens').update(record).eq('id', existing.data[0]['id']).execute()
+                            if update_result.data:
+                                success_count += 1
+                                print(f"✅ Updated existing token: {record['token_symbol']}")
+                        else:
+                            # Insert new record (created_at will be set to NOW() by default)
+                            insert_result = self.supabase.table('tokens').insert(record).execute()
+                            if insert_result.data:
+                                success_count += 1
+                                print(f"✅ Inserted new token: {record['token_symbol']}")
+                                
+                    except Exception as record_error:
+                        print(f"⚠️ Error processing record {record.get('token_symbol', 'Unknown')}: {record_error}")
+                        continue
+                
+                if success_count > 0:
+                    print(f"✅ Successfully processed {success_count}/{len(db_data)} token records")
+                    return True
+                else:
+                    print("❌ Failed to process any token records")
+                    return False
+                    
+            except Exception as e:
+                print(f"❌ Error in token processing: {e}")
                 return False
                 
         except Exception as e:
@@ -242,4 +348,33 @@ class TokenDataAPI:
             
         except Exception as e:
             print(f"❌ Error in get_and_store_token_data: {e}")
+            return False
+    
+    async def get_and_store_token_data_by_names(self, token_names: List[str]) -> bool:
+        """
+        Get token data from API by names and store in Supabase
+        
+        Args:
+            token_names: List of token names to fetch and store
+        """
+        try:
+            # Fetch token data from API
+            token_data = await self.get_token_data_by_names(token_names)
+            
+            if not token_data:
+                print("❌ No token data received from API")
+                return False
+            
+            # Store in Supabase
+            success = self.store_token_data(token_data)
+            
+            if success:
+                print(f"✅ Successfully processed token data for {len(token_names)} tokens")
+            else:
+                print(f"❌ Failed to store token data for {len(token_names)} tokens")
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ Error in get_and_store_token_data_by_names: {e}")
             return False
