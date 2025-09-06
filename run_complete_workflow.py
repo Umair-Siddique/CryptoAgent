@@ -16,6 +16,7 @@ import sys
 import json
 from typing import List, Dict
 from dotenv import load_dotenv
+import urllib.parse
 
 # Add the top_token_pipeline directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'top_token_pipeline'))
@@ -267,6 +268,12 @@ class CompleteCryptoWorkflow:
             comprehensive_data = {}
             
             for token_name in token_names:
+                # 🆕 FIX: URL decode the token name if it's encoded
+                decoded_token_name = urllib.parse.unquote(token_name)
+                if decoded_token_name != token_name:
+                    print(f" Decoded token name: {token_name} → {decoded_token_name}")
+                    token_name = decoded_token_name
+                
                 print(f"\n🔄 Processing {token_name}...")
                 
                 # Use the retriever's method to get comprehensive data
@@ -283,17 +290,18 @@ class CompleteCryptoWorkflow:
                         token_id = token_data['fundamental_grade'][0].get('token_id')
                     
                     if token_id:
-                        # The resistance_support_api attribute was removed, so this block is now effectively a no-op
-                        # resistance_support_data = await self.resistance_support_api.get_resistance_support_by_id(token_id)
-                        # if resistance_support_data:
-                        #     token_data['resistance_support'] = resistance_support_data
-                        #     print(f"✅ Added resistance support data for {token_name}")
-                        # else:
-                        #     print(f"⚠️ No resistance support data found for {token_name}")
-                        #     token_data['resistance_support'] = {}
-                        # else:
-                        print(f"⚠️ Could not determine token ID for {token_name}")
-                        token_data['resistance_support'] = {}
+                        # ✅ FIXED: Actually fetch resistance support data
+                        try:
+                            resistance_support_data = await self.resistance_support_api.get_resistance_support_by_id(token_id)
+                            if resistance_support_data:
+                                token_data['resistance_support'] = resistance_support_data
+                                print(f"✅ Added resistance support data for {token_name}")
+                            else:
+                                print(f"⚠️ No resistance support data found for {token_name}")
+                                token_data['resistance_support'] = {}
+                        except Exception as e:
+                            print(f"⚠️ Error fetching resistance support data for {token_name}: {e}")
+                            token_data['resistance_support'] = {}
                     else:
                         print(f"⚠️ Could not determine token ID for {token_name}")
                         token_data['resistance_support'] = {}
@@ -334,8 +342,15 @@ class CompleteCryptoWorkflow:
                     grade = token_data['fundamental_grade'][0]
                     summary += f"Fundamental grade: {grade.get('fundamental_grade', 'N/A')}, "
                 
-                # Add latest price info
-                if token_data.get('daily_ohlcv'):
+                # 🆕 ADD TOKEN METRICS DATA FROM TOKENS TABLE
+                if token_data.get('token_metrics'):
+                    metrics = token_data['token_metrics'][0]  # Get latest metrics
+                    summary += f"Current price: ${metrics.get('current_price', 'N/A')}, "
+                    summary += f"Market cap: ${metrics.get('market_cap', 'N/A'):,.0f}, "
+                    summary += f"24h change: {metrics.get('price_change_percentage_24h', 'N/A')}%, "
+                    summary += f"24h volume: ${metrics.get('total_volume', 'N/A'):,.0f}, "
+                # Fallback to OHLCV data if no token metrics
+                elif token_data.get('daily_ohlcv'):
                     latest_price = token_data['daily_ohlcv'][-1].get('close_price', 'N/A')
                     summary += f"Current price: ${latest_price}, "
                 elif token_data.get('hourly_ohlcv'):
@@ -347,7 +362,7 @@ class CompleteCryptoWorkflow:
                     latest_signal = token_data['hourly_trading_signals'][-1]
                     summary += f"Latest signal: {latest_signal.get('signal', 'N/A')}, "
                 
-                data_summary.append(summary.rstrip(', '))  # Fix indentation here
+                data_summary.append(summary.rstrip(', '))
             
             # Create LLM prompt
             prompt = f"""
@@ -362,6 +377,7 @@ AVAILABLE DATA FOR EACH TOKEN:
 - Trading signals and hourly signals
 - Fundamental grades
 - Price data (daily and hourly OHLCV)
+- 🆕 Token metrics (current price, market cap, volume, supply, 24h changes)
 
 REQUIRED OUTPUT FORMAT (JSON only, no other text):
 {{
@@ -373,7 +389,8 @@ REQUIRED OUTPUT FORMAT (JSON only, no other text):
       "stop_loss": [stop_loss_price],
       "target_1": [first_target_price],
       "target_2": [second_target_price],
-      "rationale": "[Detailed rationale based on the data provided, including social sentiment, AI analysis, and trading signals]"
+      "days": [estimated_days_to_reach_target_based_on_analysis],
+      "rationale": "[Detailed rationale based on the data provided, including social sentiment, AI analysis, trading signals, and token metrics. Also explain your days estimate based on market conditions, volatility, and technical analysis.]"
     }}
   ]
 }}
@@ -388,7 +405,9 @@ IMPORTANT RULES:
 - Position size should be reasonable (typically 10-50 USD for testing)
 - Consider hourly trading signals for short-term entry/exit timing
 - Generate recommendations for the top 2-4 most promising tokens based on the data
-- Focus on tokens with strong social sentiment, AI analysis, and trading signals
+- Focus on tokens with strong social sentiment, AI analysis, trading signals, and favorable token metrics
+- Use the current price from token metrics for realistic entry/exit calculations
+- The "days" field should be your AI-estimated time to reach the target price based on your expert analysis of the provided data
 """
 
             # Call OpenAI API using the retriever's client
@@ -446,7 +465,8 @@ IMPORTANT RULES:
                 "stop_loss": 0.80,
                 "target_1": 1.20,
                 "target_2": 1.50,
-                "rationale": f"Fallback recommendation for {token_name} due to insufficient data or LLM processing error."
+                "days": 30,
+                "rationale": f"Fallback recommendation for {token_name} due to insufficient data or LLM processing error. Conservative 30-day estimate for target achievement."
             })
         
         return {
@@ -468,6 +488,7 @@ IMPORTANT RULES:
                 print(f"  • Stop Loss: ${position.get('stop_loss', 'N/A')}")
                 print(f"  • Target 1: ${position.get('target_1', 'N/A')}")
                 print(f"  • Target 2: ${position.get('target_2', 'N/A')}")
+                print(f"  • Estimated Days: {position.get('days', 'N/A')} days")
                 print(f"  • Rationale: {position.get('rationale', 'N/A')}")
                 print()
         else:
@@ -775,7 +796,12 @@ IMPORTANT RULES:
             if posts_response.data:
                 for post in posts_response.data:
                     if post.get('token_name'):
-                        post_tokens.add(post['token_name'])
+                        # 🆕 FIX: URL decode token names from database
+                        raw_token_name = post['token_name']
+                        decoded_token_name = urllib.parse.unquote(raw_token_name)
+                        if decoded_token_name != raw_token_name:
+                            print(f"🔄 Decoded post token name: {raw_token_name} → {decoded_token_name}")
+                        post_tokens.add(decoded_token_name)
             
             # Get tokens from ai_reports table
             reports_response = self.supabase.table('ai_reports').select('token_name').execute()
@@ -783,7 +809,12 @@ IMPORTANT RULES:
             if reports_response.data:
                 for report in reports_response.data:
                     if report.get('token_name'):
-                        report_tokens.add(report['token_name'])
+                        # 🆕 FIX: URL decode token names from database
+                        raw_token_name = report['token_name']
+                        decoded_token_name = urllib.parse.unquote(raw_token_name)
+                        if decoded_token_name != raw_token_name:
+                            print(f"🔄 Decoded report token name: {raw_token_name} → {decoded_token_name}")
+                        report_tokens.add(decoded_token_name)
             
             # Combine all tokens
             all_tokens = list(post_tokens.union(report_tokens))
@@ -795,12 +826,12 @@ IMPORTANT RULES:
             
             print(f"✅ Found tokens: {', '.join(all_tokens)}")
             
-            # Use all available tokens
+            # Use all available tokens (now decoded)
             token_names = all_tokens
             
             print(f" Processing TODAY'S embeddings for tokens: {', '.join(token_names)}")
             
-            # Run the embedding pipeline
+            # Run the embedding pipeline with DECODED token names
             success = await self.embedding_pipeline.run_embedding_pipeline(token_names)
             
             if success:
@@ -851,6 +882,7 @@ IMPORTANT RULES:
                     'stop_loss': float(position.get('stop_loss', 0)),
                     'target_1': float(position.get('target_1', 0)),
                     'target_2': float(position.get('target_2', 0)),
+                    'days': int(position.get('days', 30)),
                     'rationale': position.get('rationale', ''),
                     'status': 'active'
                 }
@@ -863,6 +895,10 @@ IMPORTANT RULES:
                 if position_data['entry_price'] <= 0:
                     print(f"⚠️ Invalid entry price for {position_data['symbol']}: {position_data['entry_price']}")
                     continue
+                
+                if position_data['days'] <= 0:
+                    print(f"⚠️ Invalid days estimate for {position_data['symbol']}: {position_data['days']}")
+                    position_data['days'] = 30  # Set default to 30 days
                 
                 positions_to_store.append(position_data)
             
@@ -884,6 +920,7 @@ IMPORTANT RULES:
                         print(f"   - Stop Loss: ${position_data['stop_loss']:.8f}")
                         print(f"   - Target 1: ${position_data['target_1']:.8f}")
                         print(f"   - Target 2: ${position_data['target_2']:.8f}")
+                        print(f"   - Estimated Days: {position_data['days']} days")
                         success_count += 1
                     else:
                         print(f"❌ Failed to store position for {position_data['symbol']}")

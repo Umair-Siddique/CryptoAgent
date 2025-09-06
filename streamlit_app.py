@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Streamlit UI for Crypto Assistant
-Displays saved positions and allows running the complete workflow
+Displays saved positions and allows running the complete workflow and portfolio management
 """
 
 import streamlit as st
@@ -25,6 +25,7 @@ sys.path.append(os.path.dirname(__file__))
 
 # Import our workflow
 from run_complete_workflow import CompleteCryptoWorkflow
+from manage_portfolio import PortfolioManager
 
 # Supabase client
 try:
@@ -78,7 +79,8 @@ def format_position_data(positions: List[Dict[str, Any]]) -> pd.DataFrame:
             'Target 2': f"${pos.get('target_2', 0):.8f}",
             'Status': pos.get('status', 'active'),
             'Created': pos.get('created_at', ''),
-            'Rationale': pos.get('rationale', '')[:100] + '...' if len(pos.get('rationale', '')) > 100 else pos.get('rationale', '')
+            'Rationale': pos.get('rationale', '')[:100] + '...' if len(pos.get('rationale', '')) > 100 else pos.get('rationale', ''),
+            'Reason': pos.get('reason', '')[:100] + '...' if len(pos.get('reason', '')) > 100 else pos.get('reason', '')
         })
     
     return pd.DataFrame(formatted_data)
@@ -104,19 +106,30 @@ def run_workflow_sync() -> tuple[bool, str]:
         
         # Redirect stdout and stderr to capture logs
         with redirect_stdout(output_buffer), redirect_stderr(output_buffer):
-            # Run the async workflow in a new event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                workflow = CompleteCryptoWorkflow()
-                success = loop.run_until_complete(workflow.run_complete_workflow())
+                # Check if there's already an event loop running
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in an async context, we need to run in a thread
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(run_workflow_in_new_loop)
+                        success = future.result()
+                except RuntimeError:
+                    # No event loop running, we can create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        workflow = CompleteCryptoWorkflow()
+                        success = loop.run_until_complete(workflow.run_complete_workflow())
+                    finally:
+                        loop.close()
+                        
             except Exception as e:
                 print(f"Workflow execution error: {e}")
                 import traceback
                 traceback.print_exc()
                 success = False
-            finally:
-                loop.close()
         
         # Get captured output
         logs = output_buffer.getvalue()
@@ -130,6 +143,71 @@ def run_workflow_sync() -> tuple[bool, str]:
         error_msg += f"\n\nTraceback:\n{traceback.format_exc()}"
         return False, error_msg
 
+def run_workflow_in_new_loop():
+    """Run workflow in a new event loop (for thread execution)"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        workflow = CompleteCryptoWorkflow()
+        return loop.run_until_complete(workflow.run_complete_workflow())
+    finally:
+        loop.close()
+
+def run_portfolio_manager_sync() -> tuple[bool, str]:
+    """Run the portfolio manager synchronously"""
+    try:
+        # Create string buffer to capture output
+        output_buffer = io.StringIO()
+        
+        # Redirect stdout and stderr to capture logs
+        with redirect_stdout(output_buffer), redirect_stderr(output_buffer):
+            try:
+                # Check if there's already an event loop running
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in an async context, we need to run in a thread
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(run_portfolio_manager_in_new_loop)
+                        success = future.result()
+                except RuntimeError:
+                    # No event loop running, we can create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        portfolio_manager = PortfolioManager(total_budget=100.0)
+                        success = loop.run_until_complete(portfolio_manager.run())
+                    finally:
+                        loop.close()
+                        
+            except Exception as e:
+                print(f"Portfolio manager execution error: {e}")
+                import traceback
+                traceback.print_exc()
+                success = False
+        
+        # Get captured output
+        logs = output_buffer.getvalue()
+        output_buffer.close()
+        
+        return success, logs
+        
+    except Exception as e:
+        error_msg = f"Error running portfolio manager: {e}"
+        import traceback
+        error_msg += f"\n\nTraceback:\n{traceback.format_exc()}"
+        return False, error_msg
+
+def run_portfolio_manager_in_new_loop():
+    """Run portfolio manager in a new event loop (for thread execution)"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        portfolio_manager = PortfolioManager(total_budget=100.0)
+        return loop.run_until_complete(portfolio_manager.run())
+    finally:
+        loop.close()
+
 def update_workflow_logs():
     """Update workflow logs from the queue"""
     if 'workflow_logs' not in st.session_state:
@@ -142,6 +220,27 @@ def update_workflow_logs():
     if st.session_state.get('workflow_running', False):
         time.sleep(2)
         st.rerun()
+
+def validate_environment() -> tuple[bool, str]:
+    """Validate that all required environment variables are present"""
+    required_vars = {
+        'SUPABASE_URL': 'Supabase database URL',
+        'SUPABASE_KEY': 'Supabase API key', 
+        'USER_ID': 'User ID for database operations',
+        'OPENAI_API_KEY': 'OpenAI API key for LLM operations',
+        'X402_PRIVATE_KEY_B64': 'X402 API private key for token data',
+        'LUNAR_CRUSH_API': 'LunarCrush API key for social sentiment'
+    }
+    
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not os.getenv(var):
+            missing_vars.append(f"{var} ({description})")
+    
+    if missing_vars:
+        return False, f"Missing required environment variables:\n" + "\n".join(f"• {var}" for var in missing_vars)
+    
+    return True, "All environment variables are present"
 
 def main():
     st.set_page_config(
@@ -160,7 +259,13 @@ def main():
         
         # Run workflow button
         if st.button("🔄 Run Complete Workflow", type="primary", use_container_width=True):
-            st.session_state.run_workflow = True
+            # Validate environment first
+            env_valid, env_msg = validate_environment()
+            if not env_valid:
+                st.error(f"❌ Environment Validation Failed:\n{env_msg}")
+                st.info("Please check your .env file and ensure all required variables are set.")
+            else:
+                st.session_state.run_workflow = True
         
         st.markdown("---")
         
@@ -214,6 +319,26 @@ def main():
                 ]
             
             if filtered_positions:
+                # Add Manage Portfolio button above the table
+                st.markdown("### 💼 Portfolio Management")
+                col_manage1, col_manage2 = st.columns([1, 1])
+                
+                with col_manage1:
+                    if st.button("💼 Manage Portfolio", type="secondary", use_container_width=True):
+                        # Validate environment first
+                        env_valid, env_msg = validate_environment()
+                        if not env_valid:
+                            st.error(f"❌ Environment Validation Failed:\n{env_msg}")
+                            st.info("Please check your .env file and ensure all required variables are set.")
+                        else:
+                            st.session_state.run_portfolio_manager = True
+                
+                with col_manage2:
+                    if st.button("🔄 Refresh Table", type="secondary", use_container_width=True):
+                        st.rerun()
+                
+                st.markdown("---")
+                
                 # Display positions in a table
                 df = format_position_data(filtered_positions)
                 st.dataframe(df, use_container_width=True, hide_index=True)
@@ -294,21 +419,108 @@ def main():
             else:
                 st.error("❌ Workflow failed!")
     
+    # Portfolio Manager execution section
+    if st.session_state.get('run_portfolio_manager', False):
+        st.markdown("---")
+        st.header("💼 Running Portfolio Manager")
+        
+        # Show environment validation
+        env_valid, env_msg = validate_environment()
+        if not env_valid:
+            st.error(f"❌ Environment Validation Failed:\n{env_msg}")
+            st.session_state.run_portfolio_manager = False
+            return
+        
+        # Simple loading spinner
+        with st.spinner("Running portfolio manager... This may take a few minutes."):
+            # Run the portfolio manager synchronously
+            success, logs = run_portfolio_manager_sync()
+        
+        # Display results with more detail
+        if success:
+            st.success("✅ Portfolio manager completed successfully!")
+        else:
+            st.error("❌ Portfolio manager failed!")
+            
+            # Show specific error information
+            if "Missing required environment variables" in logs:
+                st.error("🤖 Environment Issue: Check your .env file")
+            elif "OpenAI" in logs:
+                st.error("🤖 OpenAI API Issue: Check your OpenAI API key")
+            elif "Supabase" in logs:
+                st.error("🗄️ Database Issue: Check your Supabase credentials")
+            else:
+                st.error("⚠️ General Error: Check the logs below for details")
+        
+        # Display logs in expandable section
+        with st.expander("📋 Portfolio Manager Logs", expanded=True):
+            st.code(logs, language="text")
+        
+        # Show updated positions if any were modified
+        if success:
+            st.subheader("🔄 Portfolio Updated")
+            st.success("Portfolio positions have been analyzed and updated based on AI recommendations!")
+            
+            # Show a summary of what was updated
+            updated_positions = get_stored_positions()
+            active_positions = [p for p in updated_positions if p.get('status') == 'active']
+            
+            if active_positions:
+                st.info(f"Current active positions: {len(active_positions)}")
+                
+                # Show recent updates (positions updated in the last hour)
+                from datetime import datetime, timezone
+                current_time = datetime.now(timezone.utc)
+                
+                recent_updates = [
+                    p for p in active_positions 
+                    if p.get('updated_at') and 
+                    (current_time - datetime.fromisoformat(p['updated_at'].replace('Z', '+00:00'))).total_seconds() < 3600
+                ]
+                
+                if recent_updates:
+                    st.success(f"Recently updated positions: {len(recent_updates)}")
+                    for pos in recent_updates:
+                        st.write(f"• **{pos['symbol']}** - Size: ${pos['size_usd']:.2f}, Status: {pos['status']}")
+        
+        # Reset the portfolio manager flag
+        st.session_state.run_portfolio_manager = False
+        
+        # Auto-refresh to show new data
+        st.rerun()
+    
     # Workflow execution section
     if st.session_state.get('run_workflow', False):
         st.markdown("---")
         st.header("🔄 Running Complete Workflow")
+        
+        # Show environment validation
+        env_valid, env_msg = validate_environment()
+        if not env_valid:
+            st.error(f"❌ Environment Validation Failed:\n{env_msg}")
+            st.session_state.run_workflow = False
+            return
         
         # Simple loading spinner
         with st.spinner("Running workflow... This may take several minutes."):
             # Run the workflow synchronously
             success, logs = run_workflow_sync()
         
-        # Display results
+        # Display results with more detail
         if success:
             st.success("✅ Workflow completed successfully!")
         else:
             st.error("❌ Workflow failed!")
+            
+            # Show specific error information
+            if "Missing required environment variables" in logs:
+                st.error("🤖 Environment Issue: Check your .env file")
+            elif "OpenAI" in logs:
+                st.error("🤖 OpenAI API Issue: Check your OpenAI API key")
+            elif "Supabase" in logs:
+                st.error("🗄️ Database Issue: Check your Supabase credentials")
+            else:
+                st.error("⚠️ General Error: Check the logs below for details")
         
         # Display logs in expandable section
         with st.expander("📋 Workflow Logs", expanded=True):
@@ -326,7 +538,7 @@ def main():
                 
                 recent_positions = [
                     p for p in new_positions 
-                    if (current_time - datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))).total_seconds() < 3600
+                    if current_time - datetime.fromisoformat(p['created_at'].replace('Z', '+00:00')).total_seconds() < 3600
                 ]
                 
                 if recent_positions:
@@ -359,6 +571,9 @@ if __name__ == "__main__":
     # Initialize session state
     if 'run_workflow' not in st.session_state:
         st.session_state.run_workflow = False
+    
+    if 'run_portfolio_manager' not in st.session_state:
+        st.session_state.run_portfolio_manager = False
     
     # Initialize workflow status and logs
     if 'workflow_logs' not in st.session_state:

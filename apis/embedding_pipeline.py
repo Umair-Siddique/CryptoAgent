@@ -11,6 +11,7 @@ import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, date
 from dotenv import load_dotenv
+import urllib.parse
 
 try:
     from supabase import create_client, Client
@@ -144,6 +145,12 @@ class EmbeddingPipeline:
     async def process_todays_social_posts_embeddings(self, token_name: str) -> bool:
         """Process embeddings for social posts created TODAY for a specific token"""
         try:
+            # 🆕 FIX: URL decode the token name if it's encoded
+            decoded_token_name = urllib.parse.unquote(token_name)
+            if decoded_token_name != token_name:
+                print(f" Decoded token name: {token_name} → {decoded_token_name}")
+                token_name = decoded_token_name
+            
             print(f" Processing TODAY'S social post embeddings for {token_name}...")
             
             # Fetch social posts created today from Supabase
@@ -209,11 +216,11 @@ class EmbeddingPipeline:
                     'created_date': post.get('ingested_at')
                 }
                 
-                # Store embedding in Supabase
+                # Store embedding in Supabase with DECODED token name
                 embedding_data = {
                     'user_id': self.user_id,
                     'content_type': 'social_post',
-                    'token_name': token_name,
+                    'token_name': token_name,  # 🆕 Now using decoded name
                     'content_text': content_text,
                     'embedding_vector': embedding,
                     'metadata': metadata
@@ -237,6 +244,12 @@ class EmbeddingPipeline:
     async def process_todays_ai_reports_embeddings(self, token_name: str) -> bool:
         """Process embeddings for AI reports created TODAY for a specific token"""
         try:
+            # 🆕 FIX: URL decode the token name if it's encoded
+            decoded_token_name = urllib.parse.unquote(token_name)
+            if decoded_token_name != token_name:
+                print(f" Decoded token name: {token_name} → {decoded_token_name}")
+                token_name = decoded_token_name
+            
             print(f" Processing TODAY'S AI report embeddings for {token_name}...")
             
             # Fetch AI reports created today from Supabase
@@ -286,14 +299,17 @@ class EmbeddingPipeline:
                 
                 # Prepare metadata
                 metadata = {
-                    'report_id': report['id'],  # Store report ID in metadata
-                    'token_id': report.get('token_id'),
+                    'report_id': report['id'],  # Store report ID in metadata instead
+                    'token_symbol': report.get('token_symbol'),
                     'token_name': report.get('token_name'),
                     'investment_analysis_pointer': report.get('investment_analysis_pointer'),
+                    'investment_analysis': report.get('investment_analysis'),
+                    'deep_dive': report.get('deep_dive'),
+                    'code_review': report.get('code_review'),
                     'created_date': report.get('created_at')
                 }
                 
-                # Store embedding in Supabase
+                # 🆕 FIXED: Store embedding without content_id field
                 embedding_data = {
                     'user_id': self.user_id,
                     'content_type': 'ai_report',
@@ -301,6 +317,7 @@ class EmbeddingPipeline:
                     'content_text': content_text,
                     'embedding_vector': embedding,
                     'metadata': metadata
+                    # ✅ No content_id field needed
                 }
                 
                 result = self.supabase.table('embeddings').insert(embedding_data).execute()

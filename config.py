@@ -17,6 +17,7 @@ class Config:
     
     # OpenAI Configuration
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    TOKEN_METRICS_API_KEY=os.getenv('TOKEN_METRICS_API')
     
     # Add rate limiting configuration
     API_RATE_LIMITS = {

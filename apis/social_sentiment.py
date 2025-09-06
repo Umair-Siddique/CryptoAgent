@@ -4,6 +4,7 @@ import sys
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import json
+import urllib.parse  # Add this import for URL decoding
 
 # Add Supabase client
 try:
@@ -91,17 +92,19 @@ def filter_posts(posts_data):
         interactions_total = safe_int(post.get('interactions_total', 0))
         sentiment = safe_float(post.get('post_sentiment', 0))
         
+        # Get token name from API response and decode URL encoding
+        raw_token_name = posts_data.get('config', {}).get('topic', '')
+        clean_token_name = urllib.parse.unquote(raw_token_name) if raw_token_name else ''
+        
         # Apply filters based on your criteria:
-        # followers ≥ 50k
-        # interactions_24h ≥ 30k OR interactions_total ≥ 60k
+        # interactions_24h ≥ 15k OR interactions_total ≥ 30k
         # sentiment >= 2.8 or <= 2.2
-        if (followers >= 50000 and  # followers ≥ 50k
-            (interactions_24h >= 30000 or interactions_total >= 60000) and  # interactions_24h ≥ 30k OR interactions_total ≥ 60k
+        if ((interactions_24h >= 15000 or interactions_total >= 30000) and  # interactions_24h ≥ 15k OR interactions_total ≥ 30k
             (sentiment >= 2.8 or sentiment <= 2.2)):  # sentiment >= 2.8 or <= 2.2
             
             filtered_post = {
                 'user_id': USER_ID,
-                'token_name': posts_data.get('config', {}).get('topic', ''),  # Use token_name instead of token
+                'token_name': clean_token_name,  # Use the decoded token name
                 'post_title': post.get('post_title', ''),
                 'post_link': post.get('post_link', ''),
                 'post_sentiment': sentiment,

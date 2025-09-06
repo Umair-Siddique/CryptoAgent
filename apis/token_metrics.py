@@ -138,7 +138,7 @@ class TokenMetricsAPI:
             token_symbol: Token symbol (e.g., "BTC", "ETH")
         """
         # Use the correct endpoint that returns multiple tokens
-        endpoint = f"/v2/hourly-ohlcv?limit=50&page=1"
+        endpoint = f"/v2/hourly-ohlcv?limit=100&page=1"
         print(f"Fetching hourly OHLCV data from: {endpoint}")
         
         result = await self._make_paid_request(endpoint)
@@ -167,7 +167,7 @@ class TokenMetricsAPI:
             token_symbol: Token symbol (e.g., "BTC", "ETH")
         """
         # Use the correct endpoint that returns multiple tokens
-        endpoint = f"/v2/daily-ohlcv?limit=50&page=1"
+        endpoint = f"/v2/daily-ohlcv?limit=100&page=1"
         print(f"Fetching daily OHLCV data from: {endpoint}")
         
         result = await self._make_paid_request(endpoint)
@@ -237,7 +237,7 @@ class TokenMetricsAPI:
             token_id: Token ID (e.g., 3375 for BTC)
         """
         # Use the correct endpoint that returns multiple tokens
-        endpoint = f"/v2/hourly-ohlcv?limit=50&page=1"
+        endpoint = f"/v2/hourly-ohlcv?limit=100&page=1"
         print(f"Fetching hourly OHLCV data from: {endpoint}")
         
         result = await self._make_paid_request(endpoint)
@@ -266,7 +266,7 @@ class TokenMetricsAPI:
             token_id: Token ID (e.g., 3375 for BTC)
         """
         # Use the correct endpoint that returns multiple tokens
-        endpoint = f"/v2/daily-ohlcv?limit=50&page=1"
+        endpoint = f"/v2/daily-ohlcv?limit=100&page=1"
         print(f"Fetching daily OHLCV data from: {endpoint}")
         
         result = await self._make_paid_request(endpoint)
@@ -301,12 +301,12 @@ class TokenMetricsAPI:
             symbols_str = ",".join([s.upper() for s in symbols])
             
             # Fetch hourly OHLCV data for all symbols at once
-            hourly_endpoint = f"/v2/hourly-ohlcv?symbol={symbols_str}&limit=50&page=1"
+            hourly_endpoint = f"/v2/hourly-ohlcv?symbol={symbols_str}&limit=100&page=1"
             print(f"Fetching hourly OHLCV from: {hourly_endpoint}")
             hourly_result = await self._make_paid_request(hourly_endpoint)
             
             # Fetch daily OHLCV data for all symbols at once
-            daily_endpoint = f"/v2/daily-ohlcv?symbol={symbols_str}&limit=50&page=1"
+            daily_endpoint = f"/v2/daily-ohlcv?symbol={symbols_str}&limit=100&page=1"
             print(f"Fetching daily OHLCV from: {daily_endpoint}")
             daily_result = await self._make_paid_request(daily_endpoint)
             
@@ -348,12 +348,12 @@ class TokenMetricsAPI:
             print(f"📈 Fetching OHLCV data for token IDs: {token_ids}...")
             
             # Fetch hourly OHLCV data for all tokens at once
-            hourly_endpoint = f"/v2/hourly-ohlcv?limit=50&page=1"
+            hourly_endpoint = f"/v2/hourly-ohlcv?limit=100&page=1"
             print(f"Fetching hourly OHLCV from: {hourly_endpoint}")
             hourly_result = await self._make_paid_request(hourly_endpoint)
             
             # Fetch daily OHLCV data for all tokens at once
-            daily_endpoint = f"/v2/daily-ohlcv?limit=50&page=1"
+            daily_endpoint = f"/v2/daily-ohlcv?limit=100&page=1"
             print(f"Fetching daily OHLCV from: {daily_endpoint}")
             daily_result = await self._make_paid_request(daily_endpoint)
             

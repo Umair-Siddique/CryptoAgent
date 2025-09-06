@@ -10,6 +10,7 @@ import os
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone, date, timedelta
 from dotenv import load_dotenv
+import urllib.parse  # Add this import at the top
 
 try:
     from supabase import create_client, Client
@@ -315,6 +316,12 @@ class TokenRetriever:
     async def get_comprehensive_token_data(self, token_name: str) -> Dict[str, Any]:
         """Get comprehensive token data from all tables for the latest date"""
         try:
+            # 🆕 FIX: URL decode the token name if it's encoded
+            decoded_token_name = urllib.parse.unquote(token_name)
+            if decoded_token_name != token_name:
+                print(f" Decoded token name: {token_name} → {decoded_token_name}")
+                token_name = decoded_token_name
+            
             print(f"📊 Fetching comprehensive data for {token_name}...")
             
             # First, get the latest AI report date to filter all data

@@ -138,7 +138,7 @@ class HourlyTradingSignalsStorage:
             traceback.print_exc()
             return False
 
-    def get_hourly_trading_signals(self, token_symbol: str, limit: int = 30) -> List[Dict]:
+    def get_hourly_trading_signals(self, token_symbol: str, limit: int = 100) -> List[Dict]:
         """Retrieve hourly trading signals data from Supabase"""
         try:
             result = self.supabase.table('hourly_trading_signals')\

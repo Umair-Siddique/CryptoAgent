@@ -147,7 +147,7 @@ class ResistanceSupportAPI:
             
             endpoint = f"/v2/resistance-support"
             params = {
-                'limit': 50,
+                'limit': 100,
                 'page': 1
             }
             
@@ -194,7 +194,7 @@ class ResistanceSupportAPI:
             
             endpoint = f"/v2/resistance-support"
             params = {
-                'limit': 50,
+                'limit': 100,
                 'page': 1
             }
             
@@ -304,7 +304,7 @@ class ResistanceSupportAPI:
         try:
             print(f"🔍 Retrieving stored resistance support data for {token_symbol}...")
             
-            response = self.supabase.table('resistance_support').select('*').eq('token_symbol', token_symbol.upper()).order('date', desc=True).limit(1).execute()
+            response = self.supabase.table('resistance_support').select('*').eq('token_symbol', token_symbol.upper()).order('date', desc=True).limit(100).execute()
             
             if response.data:
                 data = response.data[0]

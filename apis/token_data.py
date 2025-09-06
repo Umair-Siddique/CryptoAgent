@@ -5,6 +5,7 @@ import json
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 import httpx
+import urllib.parse  # Add this import at the top
 
 from dotenv import load_dotenv
 from eth_account import Account
@@ -161,7 +162,8 @@ class TokenDataAPI:
                 
                 seen_tokens.add(token_name)
                 
-                # Make individual API call for each token name
+                # 🆕 FIX: Use token names directly without URL encoding
+                # The TokenMetrics API can handle spaces in token names
                 endpoint = f"/v2/tokens?token_name={token_name}"
                 print(f"Fetching token data for: {token_name}")
                 print(f"Full endpoint: {API_BASE}{endpoint}")
@@ -231,6 +233,7 @@ class TokenDataAPI:
             for i, record in enumerate(token_data):
                 try:
                     token_id = record.get('TOKEN_ID')
+                    # Use token name directly (no encoding/decoding needed)
                     token_name = record.get('TOKEN_NAME', '')
                     token_symbol = record.get('TOKEN_SYMBOL', '').upper()
                     
@@ -245,80 +248,68 @@ class TokenDataAPI:
                     
                     seen_tokens.add(combination_key)
                     
-                    # Map fields to match the EXACT database schema from database_schema.sql
-                    # Only include fields that exist in the schema
+                    # 🆕 FIX: Only include columns that exist in your tokens table
+                    # Based on your database schema, these are the available columns:
                     db_record = {
                         'user_id': self.user_id,
                         'token_id': str(token_id) if token_id else None,
                         'token_name': token_name,
                         'token_symbol': token_symbol,
-                        'current_price': float(record.get('CURRENT_PRICE', 0)) if record.get('CURRENT_PRICE') else None,
-                        'market_cap': float(record.get('MARKET_CAP', 0)) if record.get('MARKET_CAP') else None,
-                        'total_volume': float(record.get('TOTAL_VOLUME', 0)) if record.get('TOTAL_VOLUME') else None,
-                        'circulating_supply': float(record.get('CIRCULATING_SUPPLY', 0)) if record.get('CIRCULATING_SUPPLY') else None,
-                        'total_supply': float(record.get('TOTAL_SUPPLY', 0)) if record.get('TOTAL_SUPPLY') else None,
-                        'max_supply': float(record.get('MAX_SUPPLY', 0)) if record.get('MAX_SUPPLY') else None,
-                        'fully_diluted_valuation': float(record.get('FULLY_DILUTED_VALUATION', 0)) if record.get('FULLY_DILUTED_VALUATION') else None,
-                        'high_24h': float(record.get('HIGH_24H', 0)) if record.get('HIGH_24H') else None,
-                        'low_24h': float(record.get('LOW_24H', 0)) if record.get('LOW_24H') else None,
-                        'price_change_percentage_24h': float(record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY', 0)) if record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY') else None
-                        # Don't set tm_link, contract_address, created_at, or updated_at
-                        # Let the database use defaults or handle them automatically
+                        'current_price': record.get('CURRENT_PRICE', 0),
+                        'market_cap': record.get('MARKET_CAP', 0),
+                        'total_volume': record.get('TOTAL_VOLUME', 0),
+                        'circulating_supply': record.get('CIRCULATING_SUPPLY', 0),
+                        'total_supply': record.get('TOTAL_SUPPLY', 0),
+                        'max_supply': record.get('MAX_SUPPLY'),
+                        'fully_diluted_valuation': record.get('FULLY_DILUTED_VALUATION', 0),
+                        'high_24h': record.get('HIGH_24H', 0),
+                        'low_24h': record.get('LOW_24H', 0),
+                        'price_change_percentage_24h': record.get('PRICE_CHANGE_PERCENTAGE_24H_IN_CURRENCY', 0)
+                        #  REMOVED: 'tm_link' and 'contract_address' columns that don't exist
                     }
                     
                     db_data.append(db_record)
                     
                 except Exception as e:
-                    print(f"Error processing token data record {i}: {e}")
+                    print(f"❌ Error processing record {i}: {e}")
                     continue
             
             if not db_data:
-                print("No valid token data to insert")
+                print("❌ No valid data to store")
                 return False
             
             print(f"Inserting {len(db_data)} unique token records...")
             
-            # Handle the unique constraint properly
-            # The constraint is on (user_id, token_symbol, created_at)
-            # We need to ensure we don't create conflicts
-            try:
-                # Process records one by one to handle the unique constraint properly
-                success_count = 0
-                for record in db_data:
-                    try:
-                        # Check if a record with the same user_id and token_symbol exists
-                        existing = self.supabase.table('tokens').select('id, created_at').eq('user_id', record['user_id']).eq('token_symbol', record['token_symbol']).execute()
-                        
-                        if existing.data:
-                            # Update the existing record instead of creating a duplicate
-                            update_result = self.supabase.table('tokens').update(record).eq('id', existing.data[0]['id']).execute()
-                            if update_result.data:
-                                success_count += 1
-                                print(f"✅ Updated existing token: {record['token_symbol']}")
-                        else:
-                            # Insert new record (created_at will be set to NOW() by default)
-                            insert_result = self.supabase.table('tokens').insert(record).execute()
-                            if insert_result.data:
-                                success_count += 1
-                                print(f"✅ Inserted new token: {record['token_symbol']}")
-                                
-                    except Exception as record_error:
-                        print(f"⚠️ Error processing record {record.get('token_symbol', 'Unknown')}: {record_error}")
-                        continue
-                
-                if success_count > 0:
-                    print(f"✅ Successfully processed {success_count}/{len(db_data)} token records")
-                    return True
-                else:
-                    print("❌ Failed to process any token records")
-                    return False
+            # Store in database
+            for record in db_data:
+                try:
+                    # Check if token already exists
+                    existing = self.supabase.table('tokens').select('id, created_at').eq('user_id', record['user_id']).eq('token_symbol', record['token_symbol']).execute()
                     
-            except Exception as e:
-                print(f"❌ Error in token processing: {e}")
-                return False
-                
+                    if existing.data:
+                        # Update existing record
+                        update_result = self.supabase.table('tokens').update(record).eq('id', existing.data[0]['id']).execute()
+                        if update_result.data:
+                            print(f"✅ Updated token: {record['token_symbol']}")
+                        else:
+                            print(f"❌ Failed to update token: {record['token_symbol']}")
+                    else:
+                        # Insert new record
+                        insert_result = self.supabase.table('tokens').insert(record).execute()
+                        if insert_result.data:
+                            print(f"✅ Inserted new token: {record['token_symbol']}")
+                        else:
+                            print(f"❌ Failed to insert token: {record['token_symbol']}")
+                            
+                except Exception as e:
+                    print(f"❌ Error storing token {record.get('token_symbol', 'unknown')}: {e}")
+                    continue
+            
+            print(f"✅ Successfully processed {len(db_data)} token records")
+            return True
+            
         except Exception as e:
-            print(f"❌ Error storing token data: {e}")
+            print(f"❌ Error in store_token_data: {e}")
             return False
     
     async def get_and_store_token_data(self, token_ids: List[int]) -> bool:
